@@ -1,0 +1,1 @@
+from modernize import french_modernize()

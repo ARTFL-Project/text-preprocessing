@@ -7,6 +7,7 @@ import sys
 import spacy
 from .modernize import modernize
 from Stemmer import Stemmer
+from unidecode import unidecode
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith('P'))
 TRIM_LAST_SLASH = re.compile(r'/\Z')
@@ -19,7 +20,7 @@ class PreProcessor:
 
     def __init__(self, word_regex=r"\w+", sentence_regex=r"[.!?]+", language="french", stemmer=False, lemmatizer=None, modernize=False,
                  ngrams=None, stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, lowercase=True, min_word_length=2,
-                 pos_to_keep=[]):
+                 ascii=True, pos_to_keep=[]):
         self.modernize = modernize
         self.language = language
         if stemmer is True:
@@ -35,6 +36,7 @@ class PreProcessor:
         self.strip_tags = strip_tags
         self.lowercase = lowercase
         self.min_word_length = min_word_length
+        self.ascii = ascii
         self.pos_to_keep = set(pos_to_keep)
         if self.pos_to_keep:
             try:
@@ -111,6 +113,8 @@ class PreProcessor:
             token = self.stemmer.stemWord(token)
         if len(token) < self.min_word_length:
             return ""
+        if self.ascii:
+            token = unidecode(token)
         return token
 
     def process(self, text, return_type="words"):

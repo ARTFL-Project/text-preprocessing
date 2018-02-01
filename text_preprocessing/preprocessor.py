@@ -6,6 +6,7 @@ import sys
 
 import spacy
 from .modernize import modernize
+from Stemmer import Stemmer
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith('P'))
 TRIM_LAST_SLASH = re.compile(r'/\Z')
@@ -16,8 +17,9 @@ WORD_CHARS = re.compile(r"\w+")
 
 class PreProcessor:
 
-    def __init__(self, token_regex=r"\w+", language="french", stemmer=True, lemmatizer=None, modernize=True, tokenize=True, ngrams=None,
-                stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, pos_to_keep=[]):
+    def __init__(self, word_regex=r"\w+", sentence_regex=r"[.!?]+", language="french", stemmer=False, lemmatizer=None, modernize=False,
+                 ngrams=None, stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, lowercase=True, min_word_length=2,
+                 pos_to_keep=[]):
         self.modernize = modernize
         self.language = language
         if stemmer is True:
@@ -25,21 +27,25 @@ class PreProcessor:
             self.stemmer.maxCacheSize = 50000
         else:
             self.stemmer = False
-        self.ngrams = None
-        self.tokenize = tokenize
+        self.ngrams = ngrams
         self.stopwords = self.__get_stopwords(stopwords)
         self.lemmatizer = self.__get_lemmatizer(lemmatizer)
         self.strip_punctuation = strip_punctuation
         self.strip_numbers = strip_numbers
-        self.token_regex = re.compile(token_regex)
         self.strip_tags = strip_tags
+        self.lowercase = lowercase
+        self.min_word_length = min_word_length
         self.pos_to_keep = set(pos_to_keep)
         if self.pos_to_keep:
             try:
-                self.pos_tagger = spacy.load(language[:2])  # assuming first two letters define language model
+                self.nlp = spacy.load(language[:2])  # assuming first two letters define language model
             except:
                 print("Spacy does not support {} POS tagging".format(language))
-                self.pos_to_keep = []
+                exit()
+        self.token_regex = re.compile(r"{}|{}".format(word_regex, sentence_regex))
+        self.word_tokenizer = re.compile(word_regex)
+        self.sentence_tokenizer = re.compile(sentence_regex)
+
 
     def __get_stopwords(self, file_path):
         if file_path is None:
@@ -61,38 +67,90 @@ class PreProcessor:
                 lemmas[word] = lemma
         return lemmas
 
-    def process(self, text):
-        final_tokens = []
+    def __generate_ngrams(self, tokens):
+        ngrams = []
+        ngram = []
+        for token in tokens:
+            ngram.append(token)
+            if len(ngram) == self.ngrams:
+                ngrams.append("_".join(ngram))
+                ngram = []
+        return ngrams
+
+    def __pos_tagger(self, tokens):
+        filtered_tokens = []
+        sentence = []
+        for token in tokens:
+            if self.sentence_tokenizer.search(token):
+                filtered_tokens.extend([t.text for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
+                sentence = []
+                continue
+            if self.modernize:
+                sentence.append(modernize(token, self.language))
+            else:
+                sentence.append(token)
+        if sentence:
+            filtered_tokens.extend([t.text for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
+        return filtered_tokens
+
+    def __normalize(self, token):
+        if self.lowercase is True:
+            token = token.lower()
+        if self.modernize:
+            token = modernize(token, self.language)
+        if token in self.stopwords:
+            return ""
+        if self.strip_punctuation:
+            token = token.translate(PUNCTUATION_MAP)
+        if self.strip_numbers:
+            if NUMBERS.search(token):
+                return ""
+        if self.lemmatizer is not None:
+            token = self.lemmatizer.get(token, token)
+        if self.stemmer is not False:
+            token = self.stemmer.stemWord(token)
+        if len(token) < self.min_word_length:
+            return ""
+        return token
+
+    def process(self, text, return_type="words"):
+        """Process text"""
+        if not isinstance(text, str):
+            print("Error: The text you provided is not a string so it cannot be processed.")
+            exit()
         if self.strip_tags:
             end_header_index = text.rfind("</teiHeader>") + 12
             text = text[end_header_index:]
             text = TAGS.sub("", text)
-        if self.tokenize is False and isinstance(text, str):
-            self.tokenize = True
-        if self.tokenize is True:
-            tokens = self.token_regex.findall(text)
-        if self.pos_to_keep:
-            if self.modernize:
-                tokens_w_pos = self.pos_tagger(" ".join([modernize(t, self.language) for t in tokens]))
-            else:
-                tokens_w_pos = self.pos_tagger(" ".join(tokens))
-            tokens = [token.text for token in tokens_w_pos if token.pos_ in self.pos_to_keep]
+        tokens = self.token_regex.findall(text)
+        sentences = []
+        sentence = []
         for token in tokens:
-            if self.modernize and not self.pos_to_keep:
-                token = modernize(token, self.language)
-            if token in self.stopwords:
-                continue
-            if self.strip_punctuation:
-                token = token.translate(PUNCTUATION_MAP)
-            if self.strip_numbers:
-                if NUMBERS.search(token):
-                    continue
-            if self.lemmatizer is not None:
-                token = self.lemmatizer.get(token, token)
-            if self.stemmer is not False:
-                token = self.stemmer.stemWord(token)
-            final_tokens.append(token)
-        return final_tokens
+            if self.sentence_tokenizer.search(token):
+                if self.pos_to_keep:
+                    sentence = self.__pos_tagger(sentence)
+                sentence = (self.__normalize(w) for w in sentence) # we use a generator so we we can verify the normalized value
+                sentences.append([w for w in sentence if w])       # in if clause while normalizing only once
+                sentence = []
+            else:
+                token = self.__normalize(token)
+                if token:
+                    sentence.append(token)
+        if sentence:
+            if self.pos_to_keep:
+                sentence = self.__pos_tagger(sentence)
+            sentence = (self.__normalize(w) for w in sentence)
+            sentences.append([w for w in sentence if w])
+        if self.ngrams is not None:
+            for i in range(len(sentences)):
+                sentences[i] = self.__generate_ngrams(sentences[i])
+        if return_type == "words":
+            return [w for sentence in sentences for w in sentence]
+        elif return_type == "sentences":
+            return sentences
+        else:
+            print("Error: only token_types possible are 'sentences' and 'words' (which can be ngrams)")
+            exit()
 
 def main():
     pass

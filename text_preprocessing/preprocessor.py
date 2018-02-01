@@ -3,6 +3,7 @@
 import re
 import unicodedata
 import sys
+from collections import namedtuple
 
 import spacy
 from .modernize import modernize
@@ -15,8 +16,12 @@ NUMBERS = re.compile(r'\d')
 TAGS = re.compile(r"<[^>]+>")
 WORD_CHARS = re.compile(r"\w+")
 
+tokenObject = namedtuple("tokenObject", "text, pos")
+tokenObject.__new__.__defaults__ = ("", "")
+
 
 class PreProcessor:
+    """ Text Preprocessing class"""
 
     def __init__(self, word_regex=r"\w+", sentence_regex=r"[.!?]+", language="french", stemmer=False, lemmatizer=None, modernize=False,
                  ngrams=None, stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, lowercase=True, min_word_length=2,
@@ -38,12 +43,11 @@ class PreProcessor:
         self.min_word_length = min_word_length
         self.ascii = ascii
         self.pos_to_keep = set(pos_to_keep)
-        if self.pos_to_keep:
-            try:
-                self.nlp = spacy.load(language[:2])  # assuming first two letters define language model
-            except:
-                print("Spacy does not support {} POS tagging".format(language))
-                exit()
+        try:
+            self.nlp = spacy.load(language[:2])  # assuming first two letters define language model
+        except:
+            self.nlp = False
+            print("Spacy does not support {} POS tagging".format(language))
         self.token_regex = re.compile(r"{}|{}".format(word_regex, sentence_regex))
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
@@ -72,7 +76,7 @@ class PreProcessor:
     def __generate_ngrams(self, tokens):
         ngrams = []
         ngram = []
-        for token in tokens:
+        for token, _ in tokens:
             ngram.append(token)
             if len(ngram) == self.ngrams:
                 ngrams.append("_".join(ngram))
@@ -84,7 +88,10 @@ class PreProcessor:
         sentence = []
         for token in tokens:
             if self.sentence_tokenizer.search(token):
-                filtered_tokens.extend([t.text for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
+                if self.pos_to_keep:
+                    filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
+                else:
+                    filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence))])
                 sentence = []
                 continue
             if self.modernize:
@@ -92,7 +99,10 @@ class PreProcessor:
             else:
                 sentence.append(token)
         if sentence:
-            filtered_tokens.extend([t.text for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
+            if self.pos_to_keep:
+                filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
+            else:
+                filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence))])
         return filtered_tokens
 
     def __normalize(self, token):
@@ -117,7 +127,19 @@ class PreProcessor:
             token = unidecode(token)
         return token
 
-    def process(self, text, return_type="words"):
+    def __normalize_sentence(self, sentence, with_pos):
+        if self.pos_to_keep or with_pos:
+            sentence = self.__pos_tagger(sentence)
+        else:
+            sentence = [tokenObject(t) for t in sentence]
+        normalized_sentence = []
+        for inner_token in sentence:
+            normalized_token = self.__normalize(inner_token.text)
+            if normalized_token:
+                normalized_sentence.append(tokenObject(normalized_token, inner_token.pos))
+        return normalized_sentence
+
+    def process(self, text, return_type="words", with_pos=False):
         """Process text"""
         if not isinstance(text, str):
             print("Error: The text you provided is not a string so it cannot be processed.")
@@ -131,23 +153,21 @@ class PreProcessor:
         sentence = []
         for token in tokens:
             if self.sentence_tokenizer.search(token):
-                if self.pos_to_keep:
-                    sentence = self.__pos_tagger(sentence)
-                sentence = (self.__normalize(w) for w in sentence) # we use a generator so we we can verify the normalized value
-                sentences.append([w for w in sentence if w])       # in if clause while normalizing only once
+                normalized_sentence = self.__normalize_sentence(sentence, with_pos)
+                if normalized_sentence:
+                    sentences.append(normalized_sentence)
                 sentence = []
             else:
-                token = self.__normalize(token)
-                if token:
-                    sentence.append(token)
+                sentence.append(token)
         if sentence:
-            if self.pos_to_keep:
-                sentence = self.__pos_tagger(sentence)
-            sentence = (self.__normalize(w) for w in sentence)
-            sentences.append([w for w in sentence if w])
+            normalized_sentence = self.__normalize_sentence(sentence, with_pos)
+            if normalized_sentence:
+                sentences.append(normalized_sentence)
         if self.ngrams is not None:
             for i in range(len(sentences)):
                 sentences[i] = self.__generate_ngrams(sentences[i])
+        elif with_pos is False:
+            sentences = [w.text for sentence in sentences for w in sentence]
         if return_type == "words":
             return [w for sentence in sentences for w in sentence]
         elif return_type == "sentences":
@@ -156,8 +176,14 @@ class PreProcessor:
             print("Error: only token_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-def main():
-    pass
 
-if __name__ == "__main__":
-    main()
+# class tokenObject:
+#     """Token object with some properties"""
+
+#     def __init__(self, token, pos=""):
+#         self.token = token
+#         self.pos_ = pos
+
+#     def __str__(self):
+#         return self.token
+

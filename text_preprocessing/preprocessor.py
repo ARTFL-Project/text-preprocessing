@@ -167,7 +167,10 @@ class PreProcessor:
             for i in range(len(sentences)):
                 sentences[i] = self.__generate_ngrams(sentences[i])
         elif with_pos is False:
-            sentences = [w.text for sentence in sentences for w in sentence]
+            new_sentences = []
+            for sentence in sentences:
+                new_sentences.append([w.text for w in sentence])
+            sentences = new_sentences
         if return_type == "words":
             return [w for sentence in sentences for w in sentence]
         elif return_type == "sentences":
@@ -175,15 +178,3 @@ class PreProcessor:
         else:
             print("Error: only token_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
-
-
-# class tokenObject:
-#     """Token object with some properties"""
-
-#     def __init__(self, token, pos=""):
-#         self.token = token
-#         self.pos_ = pos
-
-#     def __str__(self):
-#         return self.token
-

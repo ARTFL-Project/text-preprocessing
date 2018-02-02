@@ -3,7 +3,7 @@
 import re
 
 FRENCH_WORD_EXCEPTIONS = {
-    "dans", "ans", "escalier", "escaliers", "esclave", "esclaves", "escrime", "escorte", "escortes", "escorter", "escapade", "escapades",
+    "dans", "ans", "sans", "escalier", "escaliers", "esclave", "esclaves", "escrime", "escorte", "escortes", "escorter", "escapade", "escapades",
     "escamotter", "escarmouche", "escarmouches", "escabeau", "escabeaux", "escadre", "escadres", "escadrille", "escadron",
     "escalade", "escalades", "escalader", "escale", "escales", "escalope", "escamotable", "escamotage", "escamotages", "escarcelle",
     "escargot", "escargots", "escarpé", "escapées", "escapés", "escarpée", "escarpin", "escarre", "escarres", "escient", "esclaffer",

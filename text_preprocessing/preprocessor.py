@@ -149,7 +149,7 @@ class PreProcessor:
             exit()
 
     def process_texts(self, texts, return_type="words", with_pos=False, batch_size=100, threads=-1):
-        """Process texts. Return an iterator"""
+        """Process all documents. Returns an iterator of documents"""
         if with_pos is True or self.pos_to_keep:
             texts = (" ".join(self.tokenize_text(text)) for text in texts)
             for doc in self.nlp.pipe(texts, batch_size=batch_size, n_threads=threads):
@@ -161,6 +161,10 @@ class PreProcessor:
             for doc in texts:
                 doc = [tokenObject(t) for t in doc]
                 yield self.__normalize_doc(doc, return_type, with_pos)
+
+    def process_text(self, text, return_type="words", with_pos=False):
+        """Process one document. Return the transformed document"""
+        return self.process_texts([text], return_type=return_type, with_pos=with_pos)
 
     def strip_tags(self, text):
         end_header_index = text.rfind("</teiHeader>") + 12
@@ -174,11 +178,8 @@ class PreProcessor:
             exit()
         if self.strip_tags:
             text = self.strip_tags(text)
-        sentences = []
-        sentence = []
         for match in self.token_regex.finditer(text):
             token = match[0]
             if self.modernize:
                 token = modernize(token)
-            sentences.append(token)
-        return sentences
+            yield token

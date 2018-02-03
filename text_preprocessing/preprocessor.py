@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 
 import re
-import unicodedata
 import sys
+import timeit
+import unicodedata
 from collections import namedtuple
 
 import spacy
-from .modernize import modernize
-from Stemmer import Stemmer
 from unidecode import unidecode
+
+from Stemmer import Stemmer
+
+from .modernize import modernize
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith('P'))
 TRIM_LAST_SLASH = re.compile(r'/\Z')
@@ -16,7 +19,7 @@ NUMBERS = re.compile(r'\d')
 TAGS = re.compile(r"<[^>]+>")
 WORD_CHARS = re.compile(r"\w+")
 
-tokenObject = namedtuple("tokenObject", "text, pos")
+tokenObject = namedtuple("tokenObject", "text, pos_")
 tokenObject.__new__.__defaults__ = ("", "")
 
 
@@ -44,7 +47,7 @@ class PreProcessor:
         self.ascii = ascii
         self.pos_to_keep = set(pos_to_keep)
         try:
-            self.nlp = spacy.load(language[:2])  # assuming first two letters define language model
+            self.nlp = spacy.load(language[:2], disable=["parser", "ner", "textcat"])  # assuming first two letters define language model
         except:
             self.nlp = False
             print("Spacy does not support {} POS tagging".format(language))
@@ -86,30 +89,15 @@ class PreProcessor:
     def __pos_tagger(self, tokens):
         filtered_tokens = []
         sentence = []
-        for token in tokens:
-            if self.sentence_tokenizer.search(token):
-                if self.pos_to_keep:
-                    filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
-                else:
-                    filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence))])
-                sentence = []
-                continue
-            if self.modernize:
-                sentence.append(modernize(token, self.language))
-            else:
-                sentence.append(token)
-        if sentence:
-            if self.pos_to_keep:
-                filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence)) if t.pos_ in self.pos_to_keep])
-            else:
-                filtered_tokens.extend([tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(sentence))])
+        if self.pos_to_keep:
+            filtered_tokens = [tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(tokens)) if t.pos_ in self.pos_to_keep]
+        else:
+            filtered_tokens = self.nlp(" ".join(tokens))
         return filtered_tokens
 
     def __normalize(self, token):
         if self.lowercase is True:
             token = token.lower()
-        if self.modernize:
-            token = modernize(token, self.language)
         if token in self.stopwords:
             return ""
         if self.strip_punctuation:
@@ -127,54 +115,70 @@ class PreProcessor:
             token = unidecode(token)
         return token
 
-    def __normalize_sentence(self, sentence, with_pos):
-        if self.pos_to_keep or with_pos:
-            sentence = self.__pos_tagger(sentence)
-        else:
-            sentence = [tokenObject(t) for t in sentence]
-        normalized_sentence = []
-        for inner_token in sentence:
+    def __normalize_doc(self, doc, return_type, with_pos):
+        normalized_doc = []
+        for inner_token in doc:
             normalized_token = self.__normalize(inner_token.text)
             if normalized_token:
-                normalized_sentence.append(tokenObject(normalized_token, inner_token.pos))
-        return normalized_sentence
+                normalized_doc.append(tokenObject(normalized_token, inner_token.pos_))
+        return self.__format(normalized_doc, return_type, with_pos)
 
-    def process(self, text, return_type="words", with_pos=False):
-        """Process text"""
+    def __format(self, doc, return_type, with_pos):
+        if self.ngrams is not None:
+            for i in range(len(doc)):
+                doc[i] = self.__generate_ngrams(doc[i])
+            return doc
+        if return_type == "words":
+            if with_pos is True:
+                return [(w.text, w.pos_) for w in doc]
+            else:
+                return [w.text for w in doc]
+        elif return_type == "sentences":
+            sentence = []
+            list_of_sentences = []
+            for word in doc:
+                if sentence_tokenizer.search(word):
+                    list_of_sentences.append(sentence)
+                    sentence = []
+                sentence.append(word)
+            if sentence:
+                list_of_sentences.append(sentence)
+            return list_of_sentences
+        else:
+            print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
+            exit()
+
+    def process_texts(self, texts, return_type="words", with_pos=False, batch_size=100, threads=-1):
+        """Process texts. Return an iterator"""
+        if with_pos is True or self.pos_to_keep:
+            texts = (" ".join(self.tokenize_text(text)) for text in texts)
+            for doc in self.nlp.pipe(texts, batch_size=batch_size, n_threads=threads):
+                if self.pos_to_keep:
+                    doc = [tokenObject(t.text, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+                yield self.__normalize_doc(doc, return_type, with_pos)
+        else:
+            texts = (self.tokenize_text(text) for text in texts)
+            for doc in texts:
+                doc = [tokenObject(t) for t in doc]
+                yield self.__normalize_doc(doc, return_type, with_pos)
+
+    def strip_tags(self, text):
+        end_header_index = text.rfind("</teiHeader>") + 12
+        text = text[end_header_index:]
+        text = TAGS.sub("", text)
+        return text
+
+    def tokenize_text(self, text):
         if not isinstance(text, str):
             print("Error: The text you provided is not a string so it cannot be processed.")
             exit()
         if self.strip_tags:
-            end_header_index = text.rfind("</teiHeader>") + 12
-            text = text[end_header_index:]
-            text = TAGS.sub("", text)
-        tokens = self.token_regex.findall(text)
+            text = self.strip_tags(text)
         sentences = []
         sentence = []
-        for token in tokens:
-            if self.sentence_tokenizer.search(token):
-                normalized_sentence = self.__normalize_sentence(sentence, with_pos)
-                if normalized_sentence:
-                    sentences.append(normalized_sentence)
-                sentence = []
-            else:
-                sentence.append(token)
-        if sentence:
-            normalized_sentence = self.__normalize_sentence(sentence, with_pos)
-            if normalized_sentence:
-                sentences.append(normalized_sentence)
-        if self.ngrams is not None:
-            for i in range(len(sentences)):
-                sentences[i] = self.__generate_ngrams(sentences[i])
-        elif with_pos is False:
-            new_sentences = []
-            for sentence in sentences:
-                new_sentences.append([w.text for w in sentence])
-            sentences = new_sentences
-        if return_type == "words":
-            return [w for sentence in sentences for w in sentence]
-        elif return_type == "sentences":
-            return sentences
-        else:
-            print("Error: only token_types possible are 'sentences' and 'words' (which can be ngrams)")
-            exit()
+        for match in self.token_regex.finditer(text):
+            token = match[0]
+            if self.modernize:
+                token = modernize(token)
+            sentences.append(token)
+        return sentences

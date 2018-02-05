@@ -2,7 +2,6 @@
 
 import re
 import sys
-import timeit
 import unicodedata
 from collections import namedtuple
 
@@ -96,7 +95,7 @@ class PreProcessor:
         return filtered_tokens
 
     def __normalize(self, token):
-        if self.lowercase is True:
+        if self.lowercase:
             token = token.lower()
         if token in self.stopwords:
             return ""
@@ -137,7 +136,7 @@ class PreProcessor:
             sentence = []
             list_of_sentences = []
             for word in doc:
-                if sentence_tokenizer.search(word):
+                if self.sentence_tokenizer.search(word):
                     list_of_sentences.append(sentence)
                     sentence = []
                 sentence.append(word)
@@ -166,20 +165,21 @@ class PreProcessor:
         """Process one document. Return the transformed document"""
         return self.process_texts([text], return_type=return_type, with_pos=with_pos)
 
-    def strip_tags(self, text):
+    def remove_tags(self, text):
+        """Strip XML tags"""
         end_header_index = text.rfind("</teiHeader>") + 12
         text = text[end_header_index:]
         text = TAGS.sub("", text)
         return text
 
     def tokenize_text(self, text):
+        """Tokenize text"""
         if not isinstance(text, str):
             print("Error: The text you provided is not a string so it cannot be processed.")
             exit()
         if self.strip_tags:
-            text = self.strip_tags(text)
+            text = self.remove_tags(text)
         for match in self.token_regex.finditer(text):
-            token = match[0]
             if self.modernize:
-                token = modernize(token)
-            yield token
+                yield modernize(match[0], self.language)
+            yield match[0]

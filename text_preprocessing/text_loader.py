@@ -1,8 +1,6 @@
 #/usr/bin/env python3
 """Text loader for preprocessing"""
 
-from itertools import tee
-
 
 def text_loader(file_list, encoding="utf8"):
     """Loader files within generator object for low memory usage"""

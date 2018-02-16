@@ -9,5 +9,5 @@ setup(name="text_preprocessing",
       author="The ARTFL Project and OBVIL",
       author_email="clovisgladstone@gmail.com",
       packages=["text_preprocessing"],
-      install_requires=["unidecode", "PyStemmer"]
+      install_requires=["unidecode", "PyStemmer", "spacy"]
      )

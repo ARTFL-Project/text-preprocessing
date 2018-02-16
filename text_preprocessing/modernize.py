@@ -20,103 +20,111 @@ FRENCH_WORD_EXCEPTIONS = {
     "vouvoient", "entrevue"
 }
 
+FRENCH_PATTERNS = [
+    (re.compile(r"^esl"), r"el"),
+    (re.compile(r"ast\Z"), r"at"),
+    (re.compile(r"ust\Z"), r"ut"),
+    (re.compile(r"ist\Z"), r"it"),
+    (re.compile(r"inst\Z"), r"int"),
+    (re.compile(r"osts\Z"), r"ot"),
+    (re.compile(r"aincte\Z"), r"ainte"),
+    (re.compile(r"ievr\Z"), r"ieur"),
+    (re.compile(r"ovr\Z"), r"our"),
+    (re.compile(r"cy\Z"), r"ci"),
+    (re.compile(r"gy\Z"), r"gi"),
+    (re.compile(r"ty\Z"), r"ti"),
+    (re.compile(r"sy\Z"), r"si"),
+    (re.compile(r"ry\Z"), r"ri"),
+    (re.compile(r"ay\Z"), r"ai"),
+    (re.compile(r"^croye\b"), r"crois"),
+    (re.compile(r"^vraye"), r"vrai"),
+    (re.compile(r"^parmy"), r"parmi"),
+    (re.compile(r"oy\Z"), r"ai"),
+    (re.compile(r"loix\Z"), r"lois"),
+    (re.compile(r"^lettrez"), r"lettres"),
+    (re.compile(r"^regars"), r"regards"),
+    (re.compile(r"^routte"), r"route"),
+    (re.compile(r"^faubour"), r"faubourg"),
+    (re.compile(r"^quiter"), r"quitter"),
+    (re.compile(r"^sergens"), r"sergents"),
+    (re.compile(r"dessu\Z"), r"dessus"),
+    (re.compile(r"^seulle"), r"seule"),
+    (re.compile(r"^absens"), r"absents"),
+    (re.compile(r"^petis"), r"petits"),
+    (re.compile(r"^suitte"), r"suite"),
+    (re.compile(r"grans\Z"), r"grands"),
+    (re.compile(r"^effect\Z"), r"effet"),
+    (re.compile(r"^hermite"), r"ermite"),
+    (re.compile(r"prens\Z"), r"prends"),
+    (re.compile(r"temp\Z"), r"temps"),
+    (re.compile(r"^espris"), r"esprits"),
+    (re.compile(r"^milio"), r"millio"),
+    (re.compile(r"^milie"), r"millie"),
+    (re.compile(r"^chapp"), r"chap"),
+    (re.compile(r"iene\Z"), r"ienne"),
+]
+
+FRENCH_PATTERN_EXCEPTIONS = [
+    (re.compile(r"ans\Z"), r"ants"),
+    (re.compile(r"ict\Z"), "it"),
+    (re.compile(r"^esc"), "ec"),
+    (re.compile(r"ois\Z"), "ais"),
+    (re.compile(r"oist\Z"), "ait"),
+    (re.compile(r"oient\Z"), "aient"),
+]
+
 
 def french_modernize(word):
-    word = re.sub(r"estre", r"etre", word)
-    word = re.sub(r"ostre", r"otre", word)
-    word = re.sub(r"^estat", r"etat", word)
-    word = re.sub(r"tost", r"tot", word)
-    word = re.sub(r"mesme\Z", r"meme", word)
-    word = re.sub(r"mesmes\Z", r"memes", word)
-    word = re.sub(r"tousjour", r"toujour", word)
-    word = re.sub(r"^esl", r"el", word)
-    word = re.sub(r"ast\Z", r"at", word)
-    word = re.sub(r"ust\Z", r"ut", word)
-    word = re.sub(r"ist\Z", r"it", word)
-    word = re.sub(r"inst\Z", r"int", word)
-    word = re.sub(r"aysn", r"ain", word)
-    word = re.sub(r"oust", r"out", word)
-    word = re.sub(r"esf", r"ef", word) # like autresfois : fairly sure
-    word = re.sub(r"ost\Z", r"ot", word)
-    word = re.sub(r"osts\Z", r"ot", word) #like imposts
+    word = word.replace("estre", "etre")
+    word = word.replace("ostre", "otre")
+    word = word.replace("^estat", "etat")
+    word = word.replace("tost", "tot")
+    word = word.replace("mesme\Z", "meme")
+    word = word.replace("mesmes\Z", "memes")
+    word = word.replace("tousjour", "toujour")
+    word = word.replace("aysn", "ain")
+    word = word.replace("oust", "out")
+    word = word.replace("esf", "ef") # like autresfois : fairly sure
+    word = word.replace("ost\Z", "ot")
     ## Subtract a c
-    word = re.sub(r"aincte\Z", r"ainte", word)
-    word = re.sub(r"poinct", r"point", word)
+    word = word.replace("poinct", "point")
     ## Replace u with v
-    word = re.sub(r"ceuo", r"cevo", word)
-    word = re.sub(r"iue", r"ive", word) # fairly sure
-    word = re.sub(r"uiu", r"uiv", word) #like poursuiuit : are there any words in French with the pattern viu ?
-    word = re.sub(r"ievr\Z", r"ieur", word)
-    word = re.sub(r"ovr\Z", r"our", word)
-    word = re.sub(r"ouue", r"ouve", word)
-    word = re.sub(r"ouua", r"ouva", word)
+    word = word.replace("ceuo", "cevo")
+    word = word.replace("iue", "ive") # fairly sure
+    word = word.replace("uiu", "uiv") #like poursuiuit : are there any words in French with the pattern viu ?
+    word = word.replace("ouue", "ouve")
+    word = word.replace("ouua", "ouva")
     ## Replace y with i
-    word = re.sub(r"cy\Z", r"ci", word) # I'm fairly sure about this one (voicy, mercy)
-    word = re.sub(r"gy\Z", r"gi", word) #like rougy
-    word = re.sub(r"ty\Z", r"ti", word) # like sorty, party
-    word = re.sub(r"sy\Z", r"si", word) # like ainsy or aussy
-    word = re.sub(r"quoy", r"quoi", word)
-    word = re.sub(r"suy", r"sui", word)
-    word = re.sub(r"^ennuy", r"ennui", word) # Can we assume that the general rule is s/uy\Z/ui/ ?
-    word = re.sub(r"luy", r"lui", word)
-    word = re.sub(r"partys", r"partis", word)
-    word = re.sub(r"ry\Z", r"ri", word) #like attendry
-    word = re.sub(r"ay\Z", r"ai", word)
-    word = re.sub(r"^croye\b", r"crois", word)
-    word = re.sub(r"^vraye", r"vrai", word)
-    word = re.sub(r"^parmy", r"parmi", word)
-    ## Replace oi/oy by ai
-    word = re.sub(r"oy\Z", r"ai", word)
-    word = re.sub(r"nois", r"nais", word) # should check for exceptions
-    word = re.sub(r"oib", r"aib", word) # should check for exceptions
+    word = word.replace("quoy", "quoi")
+    word = word.replace("suy", "sui")
+    word = word.replace("ennuy", "ennui") # Can we assume that the general rule is s/uy\Z/ui/ ?
+    word = word.replace("luy", "lui")
+    word = word.replace("partys", "partis")
+    word = word.replace("nois", "nais") # should check for exceptions
+    word = word.replace("oib", "aib") # should check for exceptions
     ## Individual cases
-    word = re.sub(r"loix\Z", r"lois", word)
-    word = re.sub(r"agens", r"agents", word)
-    word = re.sub(r"intelligens", r"intelligent", word)
-    word = re.sub(r"^lettrez", r"lettres", word)
-    word = re.sub(r"^regars", r"regards", word)
-    word = re.sub(r"^routte", r"route", word)
-    word = re.sub(r"droitte", r"droite", word)
-    word = re.sub(r"^faubour", r"faubourg", word) # cannot restrict the rule to bour/bourg because of words like tambour
-    word = re.sub(r"^quiter", r"quitter", word)
-    word = re.sub(r"^sergens", r"sergents", word)
-    word = re.sub(r"^persone", r"personne", word)
-    word = re.sub(r"dessu\Z", r"dessus", word)
-    word = re.sub(r"^maintement", r"maintenant", word)
-    word = re.sub(r"^seulle", r"seule", word)
-    word = re.sub(r"^faitte", r"faite", word)
-    word = re.sub(r"trouue", r"trouve", word)
-    word = re.sub(r"^absens", r"absents", word)
-    word = re.sub(r"^petis", r"petits", word)
-    word = re.sub(r"^suitte", r"suite", word)
-    word = re.sub(r"^tranquile", r"tranquille", word)
-    word = re.sub(r"^colomne", r"colonne", word)
-    word = re.sub(r"grans\Z", r"grands", word)
-    word = re.sub(r"^effect\Z", r"effet", word)
-    word = re.sub(r"accens", r"accents", word)
-    word = re.sub(r"^hermite", r"ermite", word)
-    word = re.sub(r"^horison", r"horizon", word)
-    word = re.sub(r"^soufle", r"souffle", word)
-    word = re.sub(r"prens", r"prends", word)
-    word = re.sub(r"temp\Z", r"temps", word)
-    word = re.sub(r"^parolle", r"parole", word)
-    word = re.sub(r"flame", r"flamme", word)
-    word = re.sub(r"^espris", r"esprits", word)
-    word = re.sub(r"suject", r"sujet", word)
-    word = re.sub(r"project\Z", r"projet", word)
-    ## Random common patterns
-    word = re.sub(r"^milio", r"millio", word)
-    word = re.sub(r"^milie", r"millie", word)
-    word = re.sub(r"^chapp", r"chap", word) # like chappelle, chappeau, chappitre
-    word = re.sub(r"iene\Z", r"ienne", word) # like anciene, tiene, siene : but is it reliable ?
+    word = word.replace("agens", "agents")
+    word = word.replace("intelligens", "intelligent")
+    word = word.replace("droitte", "droite")
+    word = word.replace("persone", "personne")
+    word = word.replace("maintement", "maintenant")
+    word = word.replace("faitte", "faite")
+    word = word.replace("trouue", "trouve")
+    word = word.replace("tranquile", "tranquille")
+    word = word.replace("colomne", "colonne")
+    word = word.replace("accens", "accents")
+    word = word.replace("horison", "horizon")
+    word = word.replace("soufle", "souffle")
+    word = word.replace("parolle", "parole")
+    word = word.replace("flame", "flamme")
+    word = word.replace("suject", "sujet")
+    word = word.replace("project", "projet")
+    for pattern, replacement in FRENCH_PATTERNS:
+        word = pattern.sub(replacement, word)
     if word not in FRENCH_WORD_EXCEPTIONS:
-        word = re.sub(r"ans\Z", r"ants", word) # may be a problem, have to check some more
-        word = re.sub(r"ict\Z", "it", word)
-        word = re.sub(r"^esc", "ec", word)
-        word = re.sub(r"ois\Z", "ais", word)
-        word = re.sub(r"oist\Z", "ait", word)
-        word = re.sub(r"oient\Z", "aient", word)
-        word = re.sub(r"euue", "euve", word)
+        for pattern, replacement in FRENCH_PATTERN_EXCEPTIONS:
+            word = pattern.sub(replacement, word)
+        word = word.replace("euue", "euve")
     return word
 
 def modernize(word, language):

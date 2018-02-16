@@ -27,7 +27,7 @@ class PreProcessor:
 
     def __init__(self, word_regex=r"\w+", sentence_regex=r"[.!?]+", language="french", stemmer=False, lemmatizer=None, modernize=False,
                  ngrams=None, stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, lowercase=True, min_word_length=2,
-                 ascii=True, pos_to_keep=[]):
+                 ascii=True, with_pos=False, pos_to_keep=[]):
         self.modernize = modernize
         self.language = language
         if stemmer is True:
@@ -45,11 +45,15 @@ class PreProcessor:
         self.min_word_length = min_word_length
         self.ascii = ascii
         self.pos_to_keep = set(pos_to_keep)
-        try:
-            self.nlp = spacy.load(language[:2], disable=["parser", "ner", "textcat"])  # assuming first two letters define language model
-        except:
+        self.with_pos = with_pos
+        if self.pos_to_keep or self.with_pos is True:
+            try:
+                self.nlp = spacy.load(language[:2], disable=["parser", "ner", "textcat"])  # assuming first two letters define language model
+            except:
+                self.nlp = False
+                print("Spacy does not support {} POS tagging".format(language))
+        else:
             self.nlp = False
-            print("Spacy does not support {} POS tagging".format(language))
         self.token_regex = re.compile(r"{}|{}".format(word_regex, sentence_regex))
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
@@ -87,7 +91,6 @@ class PreProcessor:
 
     def __pos_tagger(self, tokens):
         filtered_tokens = []
-        sentence = []
         if self.pos_to_keep:
             filtered_tokens = [tokenObject(t.text, t.pos_) for t in self.nlp(" ".join(tokens)) if t.pos_ in self.pos_to_keep]
         else:
@@ -114,21 +117,21 @@ class PreProcessor:
             token = unidecode(token)
         return token
 
-    def __normalize_doc(self, doc, return_type, with_pos):
+    def __normalize_doc(self, doc, return_type):
         normalized_doc = []
         for inner_token in doc:
             normalized_token = self.__normalize(inner_token.text)
             if normalized_token:
                 normalized_doc.append(tokenObject(normalized_token, inner_token.pos_))
-        return self.__format(normalized_doc, return_type, with_pos)
+        return self.__format(normalized_doc, return_type)
 
-    def __format(self, doc, return_type, with_pos):
+    def __format(self, doc, return_type):
         if self.ngrams is not None:
             for i in range(len(doc)):
                 doc[i] = self.__generate_ngrams(doc[i])
             return doc
         if return_type == "words":
-            if with_pos is True:
+            if self.with_pos is True:
                 return [(w.text, w.pos_) for w in doc]
             else:
                 return [w.text for w in doc]
@@ -147,33 +150,28 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def process_texts(self, texts, return_type="words", with_pos=False, batch_size=100, threads=-1):
+    def process_texts(self, texts, return_type="words", batch_size=100, threads=-1):
         """Process all documents. Returns an iterator of documents"""
         count = 0
-        print("Processing texts", end="", flush=True)
-        if with_pos is True or self.pos_to_keep:
+        print("\nProcessing texts...", end="", flush=True)
+        if self.with_pos is True or self.pos_to_keep:
             texts = (" ".join(self.tokenize_text(text)) for text in texts)
             for doc in self.nlp.pipe(texts, batch_size=batch_size, n_threads=threads):
                 if self.pos_to_keep:
                     doc = [tokenObject(t.text, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
-                    count += 1
-                    if count == batch_size:
-                        print(".", end="", flush=True)
-                        count = 0
-                yield self.__normalize_doc(doc, return_type, with_pos)
+                count += 1
+                print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                yield self.__normalize_doc(doc, return_type)
         else:
             texts = (self.tokenize_text(text) for text in texts)
             for doc in texts:
-                doc = [tokenObject(t) for t in doc]
                 count += 1
-                if count == batch_size:
-                    print(".", end="", flush=True)
-                    count = 0
-                yield self.__normalize_doc(doc, return_type, with_pos)
+                print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                yield self.__normalize_doc(doc, return_type)
 
-    def process_text(self, text, return_type="words", with_pos=False):
+    def process_text(self, text, return_type="words"):
         """Process one document. Return the transformed document"""
-        return self.process_texts([text], return_type=return_type, with_pos=with_pos)
+        return self.process_texts([text], return_type=return_type)
 
     def remove_tags(self, text):
         """Strip XML tags"""
@@ -185,11 +183,10 @@ class PreProcessor:
     def tokenize_text(self, text):
         """Tokenize text"""
         if not isinstance(text, str):
-            print("Error: The text you provided is not a string so it cannot be processed.")
-            exit()
+            raise TypeError("The text you provided is not a string so it cannot be processed.")
         if self.strip_tags:
             text = self.remove_tags(text)
         for match in self.token_regex.finditer(text):
             if self.modernize:
-                yield modernize(match[0], self.language)
-            yield match[0]
+                yield tokenObject(modernize(match[0], self.language))
+            yield tokenObject(match[0])

@@ -62,6 +62,7 @@ FRENCH_PATTERNS = [
     (re.compile(r"^milie"), r"millie"),
     (re.compile(r"^chapp"), r"chap"),
     (re.compile(r"iene\Z"), r"ienne"),
+    (re.compile(r"ost\Z"), r"ot")
 ]
 
 FRENCH_PATTERN_EXCEPTIONS = [
@@ -79,13 +80,12 @@ def french_modernize(word):
     word = word.replace("ostre", "otre")
     word = word.replace("^estat", "etat")
     word = word.replace("tost", "tot")
-    word = word.replace("mesme\Z", "meme")
-    word = word.replace("mesmes\Z", "memes")
+    word = word.replace("mesme", "meme")
+    word = word.replace("mesmes", "memes")
     word = word.replace("tousjour", "toujour")
     word = word.replace("aysn", "ain")
     word = word.replace("oust", "out")
     word = word.replace("esf", "ef") # like autresfois : fairly sure
-    word = word.replace("ost\Z", "ot")
     ## Subtract a c
     word = word.replace("poinct", "point")
     ## Replace u with v

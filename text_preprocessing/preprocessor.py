@@ -151,10 +151,11 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def process_texts(self, texts, return_type="words", batch_size=100, threads=-1):
+    def process_texts(self, texts, return_type="words", batch_size=100, threads=-1, progress=True):
         """Process all documents. Returns an iterator of documents"""
         count = 0
-        print("\nProcessing texts...", end="", flush=True)
+        if progress is True:
+            print("\nProcessing texts...", end="", flush=True)
         if self.with_pos is True or self.pos_to_keep:
             texts = (self.tokenize_text(text) for text in texts)
             for text in texts:
@@ -162,8 +163,9 @@ class PreProcessor:
                 doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
                 if self.pos_to_keep:
                     doc = [tokenObject(t.text, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
-                count += 1
-                print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                if progress is True:
+                    count += 1
+                    print("\rProcessing texts... {} done".format(count), end="", flush=True)
                 yield self.__normalize_doc(doc, return_type)
         else:
             texts = (self.tokenize_text(text) for text in texts)
@@ -174,7 +176,7 @@ class PreProcessor:
 
     def process_text(self, text, return_type="words"):
         """Process one document. Return the transformed document"""
-        return self.process_texts([text], return_type=return_type)
+        return list(self.process_texts([text], return_type=return_type, progress=False))[0]
 
     def remove_tags(self, text):
         """Strip XML tags"""

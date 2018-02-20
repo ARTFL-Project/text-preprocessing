@@ -6,6 +6,7 @@ import unicodedata
 from collections import namedtuple
 
 import spacy
+from spacy.pipeline import Tagger
 from unidecode import unidecode
 
 from Stemmer import Stemmer
@@ -155,8 +156,10 @@ class PreProcessor:
         count = 0
         print("\nProcessing texts...", end="", flush=True)
         if self.with_pos is True or self.pos_to_keep:
-            texts = (" ".join(self.tokenize_text(text)) for text in texts)
-            for doc in self.nlp.pipe(texts, batch_size=batch_size, n_threads=threads):
+            texts = (self.tokenize_text(text) for text in texts)
+            for text in texts:
+                # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
+                doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
                 if self.pos_to_keep:
                     doc = [tokenObject(t.text, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
                 count += 1

@@ -76,12 +76,12 @@ FRENCH_PATTERN_EXCEPTIONS = [
 
 
 def french_modernize(word):
-    word = word.replace("estre", "etre")
+    word = word.replace("estre", "être")
     word = word.replace("ostre", "otre")
-    word = word.replace("^estat", "etat")
-    word = word.replace("tost", "tot")
-    word = word.replace("mesme", "meme")
-    word = word.replace("mesmes", "memes")
+    word = word.replace("^estat", "état")
+    word = word.replace("tost", "tôt")
+    word = word.replace("mesme", "même")
+    word = word.replace("mesmes", "mêmes")
     word = word.replace("tousjour", "toujour")
     word = word.replace("aysn", "ain")
     word = word.replace("oust", "out")

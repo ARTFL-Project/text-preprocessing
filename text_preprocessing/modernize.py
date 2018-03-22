@@ -62,7 +62,11 @@ FRENCH_PATTERNS = [
     (re.compile(r"^milie"), r"millie"),
     (re.compile(r"^chapp"), r"chap"),
     (re.compile(r"iene\Z"), r"ienne"),
-    (re.compile(r"ost\Z"), r"ot")
+    (re.compile(r"ost\Z"), r"ot"),
+    (re.compile(r"eulx\Z"), r"eux"),
+    (re.compile(r"est\Z"), r"êt"),
+    (re.compile(r"iere\Z"), r"ière"),
+    (re.compile(r"iére\Z"), r"ière"),
 ]
 
 FRENCH_PATTERN_EXCEPTIONS = [
@@ -84,8 +88,10 @@ def french_modernize(word):
     word = word.replace("mesmes", "mêmes")
     word = word.replace("tousjour", "toujour")
     word = word.replace("aysn", "ain")
-    word = word.replace("oust", "out")
+    word = word.replace("oust", "oût")
     word = word.replace("esf", "ef") # like autresfois : fairly sure
+    word = word.replace("cq", "q")
+    word = word.replace("sç", "s")
     ## Subtract a c
     word = word.replace("poinct", "point")
     ## Replace u with v
@@ -119,6 +125,7 @@ def french_modernize(word):
     word = word.replace("flame", "flamme")
     word = word.replace("suject", "sujet")
     word = word.replace("project", "projet")
+    word = word.replace("telz", "tels")
     for pattern, replacement in FRENCH_PATTERNS:
         word = pattern.sub(replacement, word)
     if word not in FRENCH_WORD_EXCEPTIONS:

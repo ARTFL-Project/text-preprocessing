@@ -71,7 +71,9 @@ class PreProcessor:
 
     def __get_lemmatizer(self, file_path):
         if file_path is None:
-            return None
+            return {}
+        elif file_path == "spacy":
+            return "spacy"
         else:
             lemmas = {}
         with open(file_path) as input_file:
@@ -98,7 +100,7 @@ class PreProcessor:
             filtered_tokens = self.nlp(" ".join(tokens))
         return filtered_tokens
 
-    def __normalize(self, token):
+    def normalize(self, token):  # This function can be used standalone
         if self.lowercase:
             token = token.lower()
         if token in self.stopwords:
@@ -108,8 +110,6 @@ class PreProcessor:
         if self.strip_numbers:
             if NUMBERS.search(token):
                 return ""
-        if self.lemmatizer is not None:
-            token = self.lemmatizer.get(token, token)
         if self.stemmer is not False:
             token = self.stemmer.stemWord(token)
         if len(token) < self.min_word_length:
@@ -121,7 +121,7 @@ class PreProcessor:
     def __normalize_doc(self, doc, return_type):
         normalized_doc = []
         for inner_token in doc:
-            normalized_token = self.__normalize(inner_token.text)
+            normalized_token = self.normalize(inner_token.text)
             if normalized_token:
                 normalized_doc.append(tokenObject(normalized_token, inner_token.pos_))
         return self.__format(normalized_doc, return_type)
@@ -162,7 +162,10 @@ class PreProcessor:
                 # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
                 doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
                 if self.pos_to_keep:
-                    doc = [tokenObject(t.text, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+                    if self.lemmatizer and self.lemmatizer != "spacy":
+                        doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text), t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+                    else:
+                        doc = [tokenObject(t.lemma_, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
                 if progress is True:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
@@ -171,6 +174,8 @@ class PreProcessor:
             texts = (self.tokenize_text(text) for text in texts)
             for doc in texts:
                 count += 1
+                if self.lemmatizer:
+                    doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text)) for t in doc]
                 print("\rProcessing texts... {} done".format(count), end="", flush=True)
                 yield self.__normalize_doc(doc, return_type)
 

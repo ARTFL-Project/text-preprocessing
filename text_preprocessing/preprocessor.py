@@ -8,6 +8,7 @@ from collections import namedtuple
 import spacy
 from spacy.pipeline import Tagger
 from unidecode import unidecode
+from multiprocess import Pool, cpu_count
 
 from Stemmer import Stemmer
 
@@ -151,7 +152,7 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def process_texts(self, texts, return_type="words", batch_size=100, threads=-1, progress=True):
+    def process_texts(self, texts, return_type="words", batch_size=100, progress=True):
         """Process all documents. Returns an iterator of documents"""
         count = 0
         if progress is True:
@@ -159,29 +160,33 @@ class PreProcessor:
         if self.with_pos is True or self.pos_to_keep:
             texts = (self.tokenize_text(text) for text in texts)
             for text in texts:
-                # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
-                doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
-                if self.pos_to_keep:
-                    if self.lemmatizer and self.lemmatizer != "spacy":
-                        doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text), t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
-                    else:
-                        doc = [tokenObject(t.lemma_, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+                doc = self.process_text([w.text for w in text])
                 if progress is True:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
                 yield self.__normalize_doc(doc, return_type)
         else:
-            texts = (self.tokenize_text(text) for text in texts)
-            for doc in texts:
-                count += 1
+            pool = Pool(cpu_count())
+            def __local_process(text):
+                doc = self.tokenize_text(text)
                 if self.lemmatizer:
                     doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text)) for t in doc]
+                return self.__normalize_doc(doc, return_type)
+            for processed_doc in pool.imap_unordered(__local_process, texts):
+                count += 1
                 print("\rProcessing texts... {} done".format(count), end="", flush=True)
-                yield self.__normalize_doc(doc, return_type)
+                yield processed_doc
 
-    def process_text(self, text, return_type="words"):
+    def process_text(self, text_tokens):
         """Process one document. Return the transformed document"""
-        return list(self.process_texts([text], return_type=return_type, progress=False))[0]
+        # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
+        doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, text_tokens))
+        if self.pos_to_keep:
+            if self.lemmatizer and self.lemmatizer != "spacy":
+                doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text), t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+            else:
+                doc = [tokenObject(t.lemma_, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+        return doc
 
     def remove_tags(self, text):
         """Strip XML tags"""

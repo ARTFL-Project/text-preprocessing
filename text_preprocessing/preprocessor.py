@@ -71,7 +71,7 @@ class PreProcessor:
         return stopwords
 
     def __get_lemmatizer(self, file_path):
-        if file_path is None:
+        if file_path is None or file_path == "":
             return {}
         elif file_path == "spacy":
             return "spacy"

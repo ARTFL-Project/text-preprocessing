@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
+"""Text Preprocessor"""
 
+import json
 import re
 import sys
 import unicodedata
 from collections import namedtuple
 
 import spacy
+from multiprocess import Pool, cpu_count
 from spacy.pipeline import Tagger
 from unidecode import unidecode
-from multiprocess import Pool, cpu_count
 
 from Stemmer import Stemmer
 
@@ -29,7 +31,7 @@ class PreProcessor:
 
     def __init__(self, word_regex=r"\w+", sentence_regex=r"[.!?]+", language="french", stemmer=False, lemmatizer=None, modernize=False,
                  ngrams=None, stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, lowercase=True, min_word_length=2,
-                 ascii=True, with_pos=False, pos_to_keep=[]):
+                 ascii=True, with_pos=False, pos_to_keep=[], is_philo_db=False):
         self.modernize = modernize
         self.language = language
         if stemmer is True:
@@ -48,6 +50,7 @@ class PreProcessor:
         self.ascii = ascii
         self.pos_to_keep = set(pos_to_keep)
         self.with_pos = with_pos
+        self.is_philo_db = is_philo_db
         if self.pos_to_keep or self.with_pos is True:
             try:
                 self.nlp = spacy.load(language[:2], disable=["parser", "ner", "textcat"])  # assuming first two letters define language model
@@ -59,7 +62,6 @@ class PreProcessor:
         self.token_regex = re.compile(r"{}|{}".format(word_regex, sentence_regex))
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
-
 
     def __get_stopwords(self, file_path):
         if file_path is None:
@@ -152,7 +154,7 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def process_texts(self, texts, return_type="words", batch_size=100, progress=True):
+    def process_texts(self, texts, return_type="words", progress=True):
         """Process all documents. Returns an iterator of documents"""
         count = 0
         if progress is True:
@@ -173,8 +175,9 @@ class PreProcessor:
                     doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text)) for t in doc]
                 return self.__normalize_doc(doc, return_type)
             for processed_doc in pool.imap_unordered(__local_process, texts):
-                count += 1
-                print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                if progress is True:
+                    count += 1
+                    print("\rProcessing texts... {} done".format(count), end="", flush=True)
                 yield processed_doc
 
     def process_text(self, text_tokens):
@@ -197,11 +200,22 @@ class PreProcessor:
 
     def tokenize_text(self, text):
         """Tokenize text"""
-        if not isinstance(text, str):
-            raise TypeError("The text you provided is not a string so it cannot be processed.")
+        if self.is_philo_db:
+            with open(text) as philo_db_text:
+                for line in philo_db_text:
+                    word_obj = json.loads(line.strip())
+                    if self.modernize:
+                        yield tokenObject(modernize(word_obj["token"], self.language))
+                    yield tokenObject(word_obj["token"])
         if self.strip_tags:
             text = self.remove_tags(text)
-        for match in self.token_regex.finditer(text):
-            if self.modernize:
-                yield tokenObject(modernize(match[0], self.language))
-            yield tokenObject(match[0])
+        if isinstance(text, str):
+            for match in self.token_regex.finditer(text):
+                if self.modernize:
+                    yield tokenObject(modernize(match[0], self.language))
+                yield tokenObject(match[0])
+        elif isinstance(text, list):
+            for token in text:
+                if self.modernize:
+                    yield tokenObject(modernize(token, self.language))
+                yield tokenObject(token)

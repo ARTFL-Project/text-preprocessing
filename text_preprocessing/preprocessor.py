@@ -22,8 +22,10 @@ NUMBERS = re.compile(r'\d')
 TAGS = re.compile(r"<[^>]+>")
 WORD_CHARS = re.compile(r"\w+")
 
-tokenObject = namedtuple("tokenObject", "text, pos_")
-tokenObject.__new__.__defaults__ = ("", "")
+PHILO_TEXT_OBJECT_TYPE = {'doc': 1, 'div1': 2, 'div2': 3, 'div3': 4, 'para': 5, 'sent': 6, 'word': 7}
+
+tokenObject = namedtuple("tokenObject", "text, pos_, ext")
+tokenObject.__new__.__defaults__ = ("", "", {})
 
 
 class PreProcessor:
@@ -31,7 +33,7 @@ class PreProcessor:
 
     def __init__(self, word_regex=r"\w+", sentence_regex=r"[.!?]+", language="french", stemmer=False, lemmatizer=None, modernize=False,
                  ngrams=None, stopwords=None, strip_punctuation=True, strip_numbers=True, strip_tags=False, lowercase=True, min_word_length=2,
-                 ascii=True, with_pos=False, pos_to_keep=[], is_philo_db=False):
+                 ascii=True, with_pos=False, pos_to_keep=[], is_philo_db=False, text_object_type="doc"):
         self.modernize = modernize
         self.language = language
         if stemmer is True:
@@ -51,6 +53,7 @@ class PreProcessor:
         self.pos_to_keep = set(pos_to_keep)
         self.with_pos = with_pos
         self.is_philo_db = is_philo_db
+        self.text_object_type = text_object_type
         if self.pos_to_keep or self.with_pos is True:
             try:
                 self.nlp = spacy.load(language[:2], disable=["parser", "ner", "textcat"])  # assuming first two letters define language model
@@ -135,15 +138,12 @@ class PreProcessor:
                 doc[i] = self.__generate_ngrams(doc[i])
             return doc
         if return_type == "words":
-            if self.with_pos is True:
-                return [(w.text, w.pos_) for w in doc]
-            else:
-                return [w.text for w in doc]
+            return [w for w in doc]
         elif return_type == "sentences":
             sentence = []
             list_of_sentences = []
             for word in doc:
-                if self.sentence_tokenizer.search(word):
+                if self.sentence_tokenizer.search(word.text):
                     list_of_sentences.append(sentence)
                     sentence = []
                 sentence.append(word)
@@ -166,19 +166,58 @@ class PreProcessor:
                 if progress is True:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
-                yield self.__normalize_doc(doc, return_type)
+                return [self.__normalize_doc(doc, return_type)]
         else:
             pool = Pool(cpu_count())
             def __local_process(text):
-                doc = self.tokenize_text(text)
-                if self.lemmatizer:
-                    doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text)) for t in doc]
-                return self.__normalize_doc(doc, return_type)
+                if self.is_philo_db is True:
+                    if self.text_object_type:
+                        docs = []
+                        current_object_id = None
+                        current_text_object = []
+                        with open(text) as philo_db_text:
+                            for line in philo_db_text:
+                                word_obj = json.loads(line.strip())
+                                object_id = "_".join(word_obj["position"].split()[:PHILO_TEXT_OBJECT_TYPE[self.text_object_type]])
+                                if current_object_id is None:
+                                    current_object_id = object_id
+                                if object_id != current_object_id:
+                                    if current_text_object:
+                                        docs.append(self.__normalize_doc(current_text_object, return_type))
+                                        current_text_object = []
+                                    current_object_id = object_id
+                                if self.modernize:
+                                    current_text_object.append(tokenObject(modernize(word_obj["token"], self.language), '', word_obj))
+                                else:
+                                    current_text_object.append(tokenObject(word_obj["token"], '', word_obj))
+                        if current_text_object:
+                            docs.append(self.__normalize_doc(current_text_object, return_type))
+                        return docs
+                    else:
+                        doc = []
+                        with open(text) as philo_db_text:
+                            for line in philo_db_text:
+                                word_obj = json.loads(line.strip())
+                                if self.modernize:
+                                    doc.append(tokenObject(modernize(word_obj["token"], self.language), '', word_obj))
+                                else:
+                                    doc.append(tokenObject(word_obj["token"], '', word_obj))
+                        return [self.__normalize_doc(doc, return_type)]
+                else:
+                    doc = []
+                    for token in text:
+                        if self.modernize:
+                            token = modernize(token, self.language)
+                        if self.lemmatizer:
+                            token = self.lemmatizer.get(token.lower(), token)
+                        doc.append(tokenObject(token))
+                    return [self.__normalize_doc(doc, return_type)]
             for processed_doc in pool.imap_unordered(__local_process, texts):
                 if progress is True:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
-                yield processed_doc
+                for processed_text_object in processed_doc:
+                    yield processed_text_object
 
     def process_text(self, text_tokens):
         """Process one document. Return the transformed document"""
@@ -200,22 +239,9 @@ class PreProcessor:
 
     def tokenize_text(self, text):
         """Tokenize text"""
-        if self.is_philo_db:
-            with open(text) as philo_db_text:
-                for line in philo_db_text:
-                    word_obj = json.loads(line.strip())
-                    if self.modernize:
-                        yield tokenObject(modernize(word_obj["token"], self.language))
-                    yield tokenObject(word_obj["token"])
         if self.strip_tags:
             text = self.remove_tags(text)
-        if isinstance(text, str):
-            for match in self.token_regex.finditer(text):
-                if self.modernize:
-                    yield tokenObject(modernize(match[0], self.language))
-                yield tokenObject(match[0])
-        elif isinstance(text, list):
-            for token in text:
-                if self.modernize:
-                    yield tokenObject(modernize(token, self.language))
-                yield tokenObject(token)
+        for match in self.token_regex.finditer(text):
+            if self.modernize:
+                yield tokenObject(modernize(match[0], self.language))
+            yield tokenObject(match[0])

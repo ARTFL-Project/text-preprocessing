@@ -129,7 +129,7 @@ class PreProcessor:
         for inner_token in doc:
             normalized_token = self.normalize(inner_token.text)
             if normalized_token:
-                normalized_doc.append(tokenObject(normalized_token, inner_token.pos_))
+                normalized_doc.append(tokenObject(normalized_token, inner_token.pos_, inner_token.ext))
         return self.__format(normalized_doc, return_type)
 
     def __format(self, doc, return_type):
@@ -165,7 +165,7 @@ class PreProcessor:
             else:
                 texts = (self.tokenize_text(text) for text in texts)
             for text in texts:
-                doc = self.process_text([w.text for w in text])
+                doc = self.process_text(text)
                 if progress is True:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
@@ -191,15 +191,17 @@ class PreProcessor:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
 
-    def process_text(self, text_tokens):
+    def process_text(self, text):
         """Process one document. Return the transformed document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
-        doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, text_tokens))
+        doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
         if self.pos_to_keep:
             if self.lemmatizer and self.lemmatizer != "spacy":
-                doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text), t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+                doc = [tokenObject(self.lemmatizer.get(t.text.lower(), t.text), t.pos_, old_t.ext) for t, old_t in zip(doc, text) if t.pos_ in self.pos_to_keep]
             else:
-                doc = [tokenObject(t.lemma_, t.pos_) for t in doc if t.pos_ in self.pos_to_keep]
+                doc = [tokenObject(t.lemma_, t.pos_, old_t.ext) for t, old_t in zip(doc, text) if t.pos_ in self.pos_to_keep]
+        else:
+            doc = [tokenObject(t.lemma_, t.pos_, old_t.ext) for t, old_t in zip(doc, text)]
         return doc
 
     def remove_tags(self, text):

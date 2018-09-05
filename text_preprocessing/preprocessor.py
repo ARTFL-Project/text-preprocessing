@@ -5,7 +5,6 @@ import json
 import re
 import sys
 import unicodedata
-from collections import namedtuple
 
 import spacy
 from multiprocess import Pool, cpu_count
@@ -24,8 +23,35 @@ WORD_CHARS = re.compile(r"\w+")
 
 PHILO_TEXT_OBJECT_TYPE = {'doc': 1, 'div1': 2, 'div2': 3, 'div3': 4, 'para': 5, 'sent': 6, 'word': 7}
 
-tokenObject = namedtuple("tokenObject", "text, pos_, ext")
-tokenObject.__new__.__defaults__ = ("", "", {})
+
+class tokenObject:
+    """Token Object class"""
+
+    def __init__(self, text=None, pos_=None, ext=None):
+        self.text = text or ""
+        self.pos_ = pos_ or ""
+        self.ext = ext or {}
+
+    def __hash__(self):
+        return hash(self.text)
+
+    def __eq__(self, other):
+        if isinstance(other, tokenObject):
+            return self.text == other.text
+        return self.text == other
+
+    def __str__(self):
+        return self.text
+
+    def __repr__(self):
+        return self.text
+
+    def __add__(self, other):
+        return self.text + other
+
+    def __attr__(self, attrib):
+        if attrib in self.ext:
+            return self.ext[attrib]
 
 
 class PreProcessor:
@@ -239,9 +265,10 @@ class PreProcessor:
                         current_text_object = []
                     current_object_id = object_id
                 if self.modernize:
-                    current_text_object.append(tokenObject(modernize(word_obj["token"], self.language), '', word_obj))
-                else:
-                    current_text_object.append(tokenObject(word_obj["token"], '', word_obj))
+                    word_obj["token"] = modernize(word_obj["token"], self.language)
+                if self.lemmatizer:
+                    word_obj["token"] = self.lemmatizer.get(word_obj["token"], word_obj["token"])
+                current_text_object.append(tokenObject(word_obj["token"], '', word_obj))
         if current_text_object:
             if self.with_pos is True or self.pos_to_keep:
                 docs.append(current_text_object)

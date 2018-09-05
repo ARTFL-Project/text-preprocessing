@@ -3,21 +3,21 @@
 import re
 
 FRENCH_WORD_EXCEPTIONS = {
-    "dans", "ans", "sans", "escalier", "escaliers", "esclave", "esclaves", "escrime", "escorte", "escortes", "escorter", "escapade", "escapades",
-    "escamotter", "escarmouche", "escarmouches", "escabeau", "escabeaux", "escadre", "escadres", "escadrille", "escadron",
-    "escalade", "escalades", "escalader", "escale", "escales", "escalope", "escamotable", "escamotage", "escamotages", "escarcelle",
-    "escargot", "escargots", "escarpé", "escapées", "escapés", "escarpée", "escarpin", "escarre", "escarres", "escient", "esclaffer",
-    "esclandre", "esclavagisme", "esclavagiste", "esclavagistes", "escompte", "escompter", "escrimer", "escrimer", "escrimeur",
-    "escrimeurs", "escroc", "escrocs", "escroquer", "escroquerie", "escroqueries", "verdict", "reçois", "aperçois", "déçois",
-    "conçois", "perçois", "vois", "entrevois", "revois", "prévois", "pourvois", "dois", "assois", "sursois", "chois", "déchois",
-    "bois", "crois", "bois", "autrefois", "fois", "lois", "trois", "reçoit", "aperçoit", "déçoit", "conçoit", "perçoit", "voit",
-    "entrevoit", "revoit", "prévoit", "pourvoit", "doit", "assoit", "sursoit", "choit", "déchoit", "boit", "croit", "reçoient",
-    "aperçoient", "voient", "entrevoient", "revoient", "prévoient", "pourvoient", "assoient", "sursoient", "choient", "déchoient",
-    "croient", "envoient", "renvoient", "aboient", "nettoient", "renettoient", "emploient", "noient", "apitoient", "atermoient",
-    "broient", "charroient", "chatoient", "convoient", "corroient", "côtoient", "coudoient", "dénoient", "déploient", "dévoient",
-    "festoient", "flamboient", "foudroient", "larmoient", "octroient", "ondoient", "ploient", "redéploient", "réemploient",
-    "remploient", "renvoient", "rougeoient", "rudoient", "fourvoient", "soudoient", "tournoient", "tutoient", "verdoient",
-    "vouvoient", "entrevue"
+    'aboient', 'adroit', 'ans', 'aperçoient', 'aperçois', 'aperçoit', 'apperçoit", "apperçois", "apperçoient", apitoient', 'assoient',
+    'assois', 'assoit', 'atermoient', 'autrefois', 'bois', 'boit', 'boit', 'broient', 'charroient', 'chatoient', 'choient', 'chois',
+    'choit', 'choit', 'convoient', 'conçoient', 'conçois', 'conçoit', 'corroient', 'coudoient', 'croient', 'crois', 'croit', 'côtoient',
+    'dans', 'decois', 'dois', 'doit', 'droit', 'déchoi', 'déchoient', 'déchois', 'déchoit', 'dénoient', 'déploient', 'dévoient',
+    'déçois', 'déçoit', 'emploient', 'endroit', 'entrevoient', 'entrevois', 'entrevoit', 'entrevue', 'envoient', 'escabeau', 'escabeaux',
+    'escadre', 'escadres', 'escadrille', 'escadron', 'escalade', 'escalader', 'escalades', 'escale', 'escales', 'escalier', 'escaliers',
+    'escalope', 'escamotable', 'escamotage', 'escamotages', 'escamotter', 'escapade', 'escapades', 'escapées', 'escapés', 'escarcelle',
+    'escargot', 'escargots', 'escarmouche', 'escarmouches', 'escarpin', 'escarpé', 'escarpée', 'escarre', 'escarres', 'escient', 'esclaffer',
+    'esclandre', 'esclavagisme', 'esclavagiste', 'esclavagistes', 'esclave', 'esclaves', 'escompte', 'escompter', 'escorte', 'escorter',
+    'escortes', 'escrime', 'escrimer', 'escrimer', 'escrimeur', 'escrimeurs', 'escroc', 'escrocs', 'escroquer', 'escroquerie', 'escroqueries',
+    'festoient', 'flamboient', 'fois', 'foudroient', 'fourvoient', 'larmoient', 'lois', 'loit', 'maladroit', 'nettoient', 'noient',
+    'noit', 'octroient', 'ondoient', 'perçois', 'perçoit', 'ploient', 'pourvoient', 'pourvois', 'pourvoit', 'prévoient', 'prévois',
+    'prévoit', 'recoit', 'redéploient', 'remploient', 'renettoient', 'renvoient', 'renvoient', 'revoient', 'revois', 'revoit', 'reçoient',
+    'reçois', 'reçoit', 'rougeoient', 'rudoient', 'réemploient', 'sans', 'soudoient', 'sursoient', 'sursois', 'sursoit', 'toit', 'tournoient',
+    'trois', 'tutoient', 'verdict', 'verdoient', 'voient', 'vois', 'voit', 'vouvoient'
 }
 
 FRENCH_PATTERNS = [
@@ -75,6 +75,7 @@ FRENCH_PATTERN_EXCEPTIONS = [
     (re.compile(r"^esc"), "ec"),
     (re.compile(r"ois\Z"), "ais"),
     (re.compile(r"oist\Z"), "ait"),
+    (re.compile(r"oit\Z"), "ait"),
     (re.compile(r"oient\Z"), "aient"),
 ]
 

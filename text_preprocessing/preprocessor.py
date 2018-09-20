@@ -76,7 +76,7 @@ class Lemmatizer:
 
     def __load_input(self):
         with open(self.input, "rb") as pack_input:
-            self.lemmatizer = msgpack.load(pack_input)
+            self.lemmatizer = msgpack.load(pack_input, encoding="utf8")
         self.loaded = True
 
 

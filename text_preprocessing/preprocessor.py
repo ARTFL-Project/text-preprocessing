@@ -5,16 +5,18 @@ import json
 import os
 import random
 import re
+import sqlite3
 import string
 import sys
 import unicodedata
-import sqlite3
+from collections import defaultdict
 
 import msgpack
 import spacy
 from multiprocess import Pool, cpu_count
 from unidecode import unidecode
 
+import mmh3
 from Stemmer import Stemmer
 
 from .modernize import modernize
@@ -125,6 +127,7 @@ class PreProcessor:
         is_philo_db=False,
         text_object_type="doc",
         return_type="words",
+        hash_tokens=False,
     ):
         self.modernize = modernize
         self.language = language
@@ -143,6 +146,7 @@ class PreProcessor:
         self.is_philo_db = is_philo_db
         self.text_object_type = text_object_type
         self.return_type = return_type
+        self.hash_tokens = hash_tokens
         if self.pos_to_keep or self.with_pos is True or self.lemmatizer == "spacy":
             # spacy.prefer_gpu()
             try:
@@ -222,6 +226,8 @@ class PreProcessor:
             return ""
         if self.ascii:
             token = unidecode(token)
+        if self.hash_tokens:
+            token = str(mmh3.hash(token))
         return token
 
     def __normalize_doc(self, doc):
@@ -360,6 +366,7 @@ class PreProcessor:
                 "Philologic files must be inside a standard PhiloLogic database directory to extract metadata\nExiting..."
             )
             exit()
+        metadata_cache = defaultdict(dict)
         with sqlite3.connect(db_path) as db:
             db.row_factory = sqlite3.Row
             cursor = db.cursor()
@@ -372,7 +379,9 @@ class PreProcessor:
                         current_object_id = object_id
                     if object_id != current_object_id:
                         if current_text_object:
-                            obj_metadata = recursive_search(cursor, object_id, self.text_object_type)
+                            obj_metadata, metadata_cache = recursive_search(
+                                cursor, object_id, self.text_object_type, metadata_cache
+                            )
                             metadata.append(obj_metadata)
                             if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
                                 current_text_object = self.pos_tag_text(current_text_object)
@@ -390,7 +399,7 @@ class PreProcessor:
                         word_obj["token"] = modernize(word_obj["token"], self.language)
                     current_text_object.append(Token(word_obj["token"], "", word_obj))
             if current_text_object:
-                obj_metadata = recursive_search(cursor, current_object_id, self.text_object_type)
+                obj_metadata, _ = recursive_search(cursor, current_object_id, self.text_object_type, metadata_cache)
                 metadata.append(obj_metadata)
                 if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
                     current_text_object = self.pos_tag_text(current_text_object)
@@ -404,21 +413,25 @@ class PreProcessor:
         return docs, metadata
 
 
-def recursive_search(cursor, object_id, object_type):
+def recursive_search(cursor, object_id, object_type, metadata_cache):
     """Recursive look-up of PhiloLogic objects"""
-    # TODO: cache redundent lookups
     object_id = object_id.split()
     object_level = PHILO_TEXT_OBJECT_TYPE[object_type]
     obj_metadata = {}
     while object_id:
         current_id = f"{' '.join(object_id[:object_level])} {' '.join('0' for _ in range(7 - object_level))}"
-        cursor.execute("SELECT * from toms where philo_id = ?", (current_id,))
-        result = cursor.fetchone()
+        if current_id in metadata_cache:
+            result = metadata_cache[current_id]
+        else:
+            cursor.execute("SELECT * from toms where philo_id = ?", (current_id,))
+            result = cursor.fetchone()
         if result is not None:
             for field in result.keys():
                 if field not in obj_metadata:
                     if result[field] or object_level == 1:  # make sure we get all metadata stored at the last level
                         obj_metadata[field] = result[field] or ""
+                        metadata_cache[current_id][field] = obj_metadata[field]
+
         object_id.pop()
         object_level -= 1
-    return obj_metadata
+    return obj_metadata, metadata_cache

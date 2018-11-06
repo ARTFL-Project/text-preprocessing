@@ -9,7 +9,8 @@ import sqlite3
 import string
 import sys
 import unicodedata
-from collections import defaultdict
+from collections import defaultdict, deque
+from itertools import combinations
 
 import msgpack
 import spacy
@@ -63,7 +64,7 @@ class Token(str):
 
 
 class Tokens:
-    """Tokens Object class"""
+    """Tokens object contains a list of tokens as well as metadata"""
 
     def __init__(self, tokens, metadata):
         self.tokens = tokens
@@ -115,13 +116,15 @@ class PreProcessor:
         lemmatizer=None,
         modernize=False,
         ngrams=None,
+        ngram_gap=0,
+        ngram_word_order=True,
         stopwords=None,
         strip_punctuation=True,
         strip_numbers=True,
         strip_tags=False,
         lowercase=True,
         min_word_length=2,
-        ascii=True,
+        ascii=False,
         with_pos=False,
         pos_to_keep=[],
         is_philo_db=False,
@@ -133,6 +136,9 @@ class PreProcessor:
         self.language = language
         self.stemmer = stemmer
         self.ngrams = ngrams
+        if self.ngrams is not None:
+            self.ngram_window = ngrams + ngram_gap
+            self.ngram_word_order = ngram_word_order
         self.stopwords = self.__get_stopwords(stopwords)
         self.lemmatizer = self.__get_lemmatizer(lemmatizer)
         self.strip_punctuation = strip_punctuation
@@ -163,6 +169,130 @@ class PreProcessor:
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
 
+    def process_texts(self, texts, progress=True):
+        """Process all documents. Returns an iterator of documents"""
+        count = 0
+        if progress is True:
+            print("\nProcessing texts...", end="", flush=True)
+        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
+            for text in texts:
+                if self.is_philo_db is True:
+                    text_objects, metadata = self.process_philo_texts(text)
+                    for text_object, object_metadata in zip(text_objects, metadata):
+                        yield self.format(text_object, object_metadata)
+                else:
+                    doc, metadata = self.process_text(text)
+                    yield self.format(doc, metadata)
+                if progress is True:
+                    count += 1
+                    print("\rProcessing texts... {} done".format(count), end="", flush=True)
+        else:
+            with Pool(cpu_count()) as pool:
+                for processed_doc in pool.imap_unordered(self.__local_process, texts):
+                    if progress is True:
+                        count += 1
+                        print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                    for sub_doc in processed_doc:
+                        yield sub_doc
+        print()
+
+    def __local_process(self, text):
+        if self.is_philo_db is True:
+            text_objects, metadata = self.process_philo_texts(text)
+            return [
+                self.format(processed_text, obj_metadata)
+                for processed_text, obj_metadata in zip(text_objects, metadata)
+            ]
+        doc, metadata = self.process_text(text)
+        return [self.format(doc, metadata)]
+
+    def process_text(self, text):
+        """Process one document. Return the transformed document"""
+        with open(text) as input_text:
+            doc = input_text.read()
+        tokens = self.tokenize_text(doc)
+        metadata = {"filename": text}
+        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
+            return self.pos_tag_text(tokens), metadata
+        elif self.lemmatizer and self.lemmatizer != "spacy":
+            tokens = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in tokens]
+        else:
+            tokens = list(tokens)  # We need to convert generator to list for pickling in multiprocessing
+        return tokens, metadata
+
+    def process_philo_texts(self, text, fetch_metadata=True):
+        """Process files produced by PhiloLogic parser"""
+        docs = []
+        current_object_id = None
+        current_text_object = []
+        text_path = os.path.abspath(os.path.join(text, os.pardir, os.pardir, "TEXT"))
+        db_path = os.path.abspath(os.path.join(text, os.pardir, os.pardir, "toms.db"))
+        if not os.path.exists(db_path) and fetch_metadata is True:
+            print(
+                "Philologic files must be inside a standard PhiloLogic database directory to extract metadata\nExiting..."
+            )
+            exit()
+        metadata_cache = defaultdict(dict)
+        metadata = []
+        with sqlite3.connect(db_path) as db:
+            db.row_factory = sqlite3.Row
+            cursor = db.cursor()
+            with open(text) as philo_db_text:
+                for line in philo_db_text:
+                    word_obj = json.loads(line.strip())
+                    object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[self.text_object_type]])
+                    if current_object_id is None:
+                        current_object_id = object_id
+                    if object_id != current_object_id:
+                        if current_text_object:
+                            if fetch_metadata is True:
+                                obj_metadata, metadata_cache = recursive_search(
+                                    cursor, object_id, self.text_object_type, metadata_cache, text_path
+                                )
+                                metadata.append(obj_metadata)
+                            if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
+                                current_text_object = self.pos_tag_text(current_text_object)
+                                docs.append(current_text_object)
+                            else:
+                                if self.lemmatizer:
+                                    current_text_object = [
+                                        Token(self.lemmatizer.get(word, word), "", word.ext)
+                                        for word in current_text_object
+                                    ]
+                                docs.append(current_text_object)
+                            current_text_object = []
+                        current_object_id = object_id
+                    if self.modernize:
+                        word_obj["token"] = modernize(word_obj["token"], self.language)
+                    current_text_object.append(Token(word_obj["token"], "", word_obj))
+            if current_text_object:
+                if fetch_metadata is True:
+                    obj_metadata, _ = recursive_search(
+                        cursor, current_object_id, self.text_object_type, metadata_cache, text_path
+                    )
+                    metadata.append(obj_metadata)
+                if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
+                    current_text_object = self.pos_tag_text(current_text_object)
+                    docs.append(current_text_object)
+                else:
+                    if self.lemmatizer:
+                        current_text_object = [
+                            Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object
+                        ]
+                    docs.append(current_text_object)
+        if fetch_metadata is False:
+            metadata = [{} for _ in range(len(docs))]  # Return empty shell matching the number of docs returned
+        return docs, metadata
+
+    def process_string(self, text):
+        """Process string and return a list of tokens"""
+        tokens = list(self.tokenize_text(text))
+        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
+            tokens = self.pos_tag_text(tokens)
+        elif self.lemmatizer and self.lemmatizer != "spacy":
+            tokens = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in tokens]
+        return self.__normalize_doc(tokens)
+
     def __get_stopwords(self, file_path):
         if file_path is None or os.path.isfile(file_path) is False:
             return []
@@ -190,15 +320,19 @@ class PreProcessor:
 
     def __generate_ngrams(self, tokens):
         ngrams = []
-        ngram = []
+        ngram = deque()
         for token in tokens:
             ngram.append(token)
-            if len(ngram) == self.ngrams:
-                ngram_text = " ".join(t.text for t in ngram)
-                ext = ngram[0].ext
-                ext["end_byte"] = ngram[-1].ext["end_byte"]
-                ngrams.append(Token(ngram_text, None, ext))
-                ngram = []
+            if len(ngram) == self.ngram_window:
+                for local_ngram in combinations(ngram, self.ngrams):
+                    if self.ngram_word_order is True:
+                        ngram_text = "_".join(t.text for t in local_ngram)
+                    else:
+                        ngram_text = "_".join(t.text for t in sorted(local_ngram, key=lambda x: x.text))
+                    ext = local_ngram[0].ext
+                    ext["end_byte"] = local_ngram[-1].ext["end_byte"]
+                    ngrams.append(Token(ngram_text, None, ext))
+                ngram.popleft()
         return ngrams
 
     def __pos_tagger(self, tokens):
@@ -244,7 +378,7 @@ class PreProcessor:
                 normalized_doc.append(Token(normalized_token, inner_token.pos_, inner_token.ext))
         return normalized_doc
 
-    def __format(self, doc, metadata):
+    def format(self, doc, metadata):
         """Format output"""
         doc = self.__normalize_doc(doc)
         if self.return_type == "words":
@@ -271,43 +405,6 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def process_texts(self, texts, progress=True):
-        """Process all documents. Returns an iterator of documents"""
-        count = 0
-        if progress is True:
-            print("\nProcessing texts...", end="", flush=True)
-        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            for text in texts:
-                if self.is_philo_db is True:
-                    text_objects, metadata = self.process_philo_texts(text)
-                    for text_object, object_metadata in zip(text_objects, metadata):
-                        yield self.__format(text_object, object_metadata)
-                else:
-                    doc, metadata = self.process_text(text)
-                    yield self.__format(doc, metadata)
-                if progress is True:
-                    count += 1
-                    print("\rProcessing texts... {} done".format(count), end="", flush=True)
-        else:
-            with Pool(cpu_count()) as pool:
-                for processed_doc in pool.imap_unordered(self.__local_process, texts):
-                    if progress is True:
-                        count += 1
-                        print("\rProcessing texts... {} done".format(count), end="", flush=True)
-                    for sub_doc in processed_doc:
-                        yield sub_doc
-        print()
-
-    def __local_process(self, text):
-        if self.is_philo_db is True:
-            text_objects, metadata = self.process_philo_texts(text)
-            return [
-                self.__format(processed_text, obj_metadata)
-                for processed_text, obj_metadata in zip(text_objects, metadata)
-            ]
-        doc, metadata = self.process_text(text)
-        return [self.__format(doc, metadata)]
-
     def pos_tag_text(self, text):
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
@@ -327,93 +424,25 @@ class PreProcessor:
 
     def remove_tags(self, text):
         """Strip XML tags"""
-        end_header_index = text.rfind("</teiHeader>") + 12
-        text = text[end_header_index:]
+        end_header_index = text.rfind("</teiHeader>")
+        if end_header_index != -1:
+            end_header_index += 12
+            text = text[end_header_index:]
         text = TAGS.sub("", text)
         return text
 
-    def tokenize_text(self, text):
+    def tokenize_text(self, doc):
         """Tokenize text"""
-        with open(text) as input_text:
-            doc = input_text.read()
         if self.strip_tags:
             doc = self.remove_tags(doc)
         for match in self.token_regex.finditer(doc):
             if self.modernize:
                 yield Token(modernize(match[0], self.language))
-            yield Token(match[0])
-
-    def process_text(self, text):
-        """Process one document. Return the transformed document"""
-        tokens = self.tokenize_text(text)
-        metadata = {"filename": text}
-        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            return self.pos_tag_text(tokens), metadata
-        elif self.lemmatizer and self.lemmatizer != "spacy":
-            tokens = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in tokens]
-        else:
-            tokens = list(tokens)  # We need to convert generator to list for pickling in multiprocessing
-        return tokens, metadata
-
-    def process_philo_texts(self, text):
-        """Process files produced by PhiloLogic parser"""
-        docs = []
-        current_object_id = None
-        current_text_object = []
-        db_path = os.path.abspath(os.path.join(text, os.pardir, os.pardir, "toms.db"))
-        if not os.path.exists(db_path):
-            print(
-                "Philologic files must be inside a standard PhiloLogic database directory to extract metadata\nExiting..."
-            )
-            exit()
-        metadata_cache = defaultdict(dict)
-        with sqlite3.connect(db_path) as db:
-            db.row_factory = sqlite3.Row
-            cursor = db.cursor()
-            metadata = []
-            with open(text) as philo_db_text:
-                for line in philo_db_text:
-                    word_obj = json.loads(line.strip())
-                    object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[self.text_object_type]])
-                    if current_object_id is None:
-                        current_object_id = object_id
-                    if object_id != current_object_id:
-                        if current_text_object:
-                            obj_metadata, metadata_cache = recursive_search(
-                                cursor, object_id, self.text_object_type, metadata_cache
-                            )
-                            metadata.append(obj_metadata)
-                            if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-                                current_text_object = self.pos_tag_text(current_text_object)
-                                docs.append(current_text_object)
-                            else:
-                                if self.lemmatizer:
-                                    current_text_object = [
-                                        Token(self.lemmatizer.get(word, word), "", word.ext)
-                                        for word in current_text_object
-                                    ]
-                                docs.append(current_text_object)
-                            current_text_object = []
-                        current_object_id = object_id
-                    if self.modernize:
-                        word_obj["token"] = modernize(word_obj["token"], self.language)
-                    current_text_object.append(Token(word_obj["token"], "", word_obj))
-            if current_text_object:
-                obj_metadata, _ = recursive_search(cursor, current_object_id, self.text_object_type, metadata_cache)
-                metadata.append(obj_metadata)
-                if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-                    current_text_object = self.pos_tag_text(current_text_object)
-                    docs.append(current_text_object)
-                else:
-                    if self.lemmatizer:
-                        current_text_object = [
-                            Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object
-                        ]
-                    docs.append(current_text_object)
-        return docs, metadata
+            else:
+                yield Token(match[0])
 
 
-def recursive_search(cursor, object_id, object_type, metadata_cache):
+def recursive_search(cursor, object_id, object_type, metadata_cache, text_path):
     """Recursive look-up of PhiloLogic objects"""
     object_id = object_id.split()
     object_level = PHILO_TEXT_OBJECT_TYPE[object_type]
@@ -429,9 +458,11 @@ def recursive_search(cursor, object_id, object_type, metadata_cache):
             for field in result.keys():
                 if field not in obj_metadata:
                     if result[field] or object_level == 1:  # make sure we get all metadata stored at the last level
-                        obj_metadata[field] = result[field] or ""
+                        if field == "filename":
+                            obj_metadata[field] = os.path.join(text_path, result[field])
+                        else:
+                            obj_metadata[field] = result[field] or ""
                         metadata_cache[current_id][field] = obj_metadata[field]
-
         object_id.pop()
         object_level -= 1
     return obj_metadata, metadata_cache

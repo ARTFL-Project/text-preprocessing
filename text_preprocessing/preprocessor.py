@@ -20,7 +20,7 @@ from unidecode import unidecode
 import mmh3
 from Stemmer import Stemmer
 
-from .modernize import modernize
+from .modernize import modernizer
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P"))
 TRIM_LAST_SLASH = re.compile(r"/\Z")
@@ -131,9 +131,14 @@ class PreProcessor:
         text_object_type="doc",
         return_type="words",
         hash_tokens=False,
+        workers=None
     ):
-        self.modernize = modernize
         self.language = language
+        if modernize is True:
+            from .modernize import modernizer
+            self.modernize = modernizer(language)
+        else:
+            self.modernize = {}
         self.stemmer = stemmer
         self.ngrams = ngrams
         if self.ngrams is not None:
@@ -168,6 +173,10 @@ class PreProcessor:
         self.token_regex = re.compile(r"{}|{}".format(word_regex, sentence_regex))
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
+        if workers is None:
+            self.workers = cpu_count()
+        else:
+            self.workers = workers
 
     def process_texts(self, texts, progress=True):
         """Process all documents. Returns an iterator of documents"""
@@ -187,7 +196,7 @@ class PreProcessor:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
         else:
-            with Pool(cpu_count()) as pool:
+            with Pool(self.workers) as pool:
                 for processed_doc in pool.imap_unordered(self.__local_process, texts):
                     if progress is True:
                         count += 1
@@ -263,7 +272,7 @@ class PreProcessor:
                             current_text_object = []
                         current_object_id = object_id
                     if self.modernize:
-                        word_obj["token"] = modernize(word_obj["token"], self.language)
+                        word_obj["token"] = self.modernize(word_obj["token"])
                     current_text_object.append(Token(word_obj["token"], "", word_obj))
             if current_text_object:
                 if fetch_metadata is True:
@@ -437,7 +446,7 @@ class PreProcessor:
             doc = self.remove_tags(doc)
         for match in self.token_regex.finditer(doc):
             if self.modernize:
-                yield Token(modernize(match[0], self.language))
+                yield Token(self.modernize(match[0]))
             else:
                 yield Token(match[0])
 

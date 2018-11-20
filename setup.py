@@ -9,6 +9,6 @@ setup(
     version="1.0alpha",
     author="The ARTFL Project and OBVIL",
     author_email="clovisgladstone@gmail.com",
-    packages=["text_preprocessing"],
+    packages=["text_preprocessing", "text_preprocessing.lang"],
     install_requires=["unidecode", "PyStemmer", "spacy", "msgpack", "mmh3"],
 )

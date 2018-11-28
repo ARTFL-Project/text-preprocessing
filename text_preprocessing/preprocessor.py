@@ -103,6 +103,11 @@ class Lemmatizer:
             self.lemmatizer = msgpack.load(pack_input, encoding="utf8")
         self.loaded = True
 
+    def delete(self):
+        self.loaded = False
+        self.lemmatizer = {}
+        os.system(f"rm {self.input}")
+
 
 class PreProcessor:
     """ Text Preprocessing class"""
@@ -131,11 +136,12 @@ class PreProcessor:
         text_object_type="doc",
         return_type="words",
         hash_tokens=False,
-        workers=None
+        workers=None,
     ):
         self.language = language
         if modernize is True:
             from .modernize import modernizer
+
             self.modernize = modernizer(language)
         else:
             self.modernize = {}

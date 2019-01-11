@@ -225,7 +225,10 @@ class PreProcessor:
         if self.is_philo_db is True:
             text_objects, metadata = self.process_philo_text(text)
             if self.post_func is None:
-                return [self.format(processed_text, obj_metadata) for processed_text, obj_metadata in zip(text_objects, metadata)]
+                return [
+                    self.format(processed_text, obj_metadata)
+                    for processed_text, obj_metadata in zip(text_objects, metadata)
+                ]
             else:
                 return [
                     self.post_func(self.format(processed_text, obj_metadata))
@@ -278,6 +281,7 @@ class PreProcessor:
                             obj_metadata, metadata_cache = recursive_search(
                                 cursor, object_id, self.text_object_type, metadata_cache, text_path
                             )
+                            metadata.append(obj_metadata)
                         else:
                             metadata.append(os.path.basename(text))
                         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
@@ -285,7 +289,9 @@ class PreProcessor:
                             docs.append(current_text_object)
                         else:
                             if self.lemmatizer:
-                                current_text_object = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object]
+                                current_text_object = [
+                                    Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object
+                                ]
                             docs.append(current_text_object)
                         current_text_object = []
                     current_object_id = object_id
@@ -294,14 +300,18 @@ class PreProcessor:
                 current_text_object.append(Token(word_obj["token"], "", word_obj))
         if current_text_object:
             if fetch_metadata is True:
-                obj_metadata, _ = recursive_search(cursor, current_object_id, self.text_object_type, metadata_cache, text_path)
+                obj_metadata, _ = recursive_search(
+                    cursor, current_object_id, self.text_object_type, metadata_cache, text_path
+                )
                 metadata.append(obj_metadata)
             if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
                 current_text_object = self.pos_tag_text(current_text_object)
                 docs.append(current_text_object)
             else:
                 if self.lemmatizer:
-                    current_text_object = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object]
+                    current_text_object = [
+                        Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object
+                    ]
                 docs.append(current_text_object)
         if fetch_metadata is False:
             metadata = [{"filename": os.path.basename(text)}]  # Return empty shell matching the number of docs returned

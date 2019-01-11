@@ -279,7 +279,7 @@ class PreProcessor:
                     if current_text_object:
                         if fetch_metadata is True:
                             obj_metadata, metadata_cache = recursive_search(
-                                cursor, object_id, self.text_object_type, metadata_cache, text_path
+                                cursor, current_object_id, self.text_object_type, metadata_cache, text_path
                             )
                             metadata.append(obj_metadata)
                         else:

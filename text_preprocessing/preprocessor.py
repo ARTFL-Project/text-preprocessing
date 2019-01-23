@@ -34,11 +34,12 @@ PHILO_TEXT_OBJECT_TYPE = {"doc": 1, "div1": 2, "div2": 3, "div3": 4, "para": 5, 
 class Token(str):
     """Token Object class inheriting from string"""
 
-    def __new__(cls, value, pos_="", ext=""):
+    def __new__(cls, value, surface_form="", pos_="", ext=""):
         return str.__new__(cls, value)
 
-    def __init__(self, text, pos_="", ext=""):
+    def __init__(self, text, surface_form="", pos_="", ext=""):
         self.text = text or ""
+        self.surface_form = surface_form or text
         self.pos_ = pos_ or ""
         self.ext = ext or {}
 
@@ -178,7 +179,7 @@ class PreProcessor:
                 print("Spacy does not support {} POS tagging".format(language))
         else:
             self.nlp = False
-        self.token_regex = re.compile(r"{}|{}".format(word_regex, sentence_regex))
+        self.token_regex = re.compile(rf"{word_regex}|[^{word_regex}]")
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
         if workers is None:
@@ -249,10 +250,19 @@ class PreProcessor:
         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
             return self.pos_tag_text(tokens), metadata
         elif self.lemmatizer and self.lemmatizer != "spacy":
-            tokens = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in tokens]
+            tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
         else:
             tokens = list(tokens)  # We need to convert generator to list for pickling in multiprocessing
         return tokens, metadata
+
+    def process_string(self, text):
+        """Take a string and return a list of preprocessed tokens"""
+        tokens = self.tokenize_text(text)
+        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
+            tokens = self.pos_tag_text(tokens)
+        elif self.lemmatizer and self.lemmatizer != "spacy":
+            tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
+        return self.__normalize_doc(tokens, keep_all=True)
 
     def process_philo_text(self, text, fetch_metadata=True):
         """Process files produced by PhiloLogic parser"""
@@ -290,14 +300,19 @@ class PreProcessor:
                         else:
                             if self.lemmatizer:
                                 current_text_object = [
-                                    Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object
+                                    Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext)
+                                    for word in current_text_object
                                 ]
                             docs.append(current_text_object)
                         current_text_object = []
                     current_object_id = object_id
                 if self.modernize:
                     word_obj["token"] = self.modernize(word_obj["token"])
-                current_text_object.append(Token(word_obj["token"], "", word_obj))
+                    current_text_object.append(
+                        Token(self.modernize(word_obj["token"]), word_obj["token"], "", word_obj)
+                    )
+                else:
+                    current_text_object.append(Token(word_obj["token"], word_obj["token"], "", word_obj))
         if current_text_object:
             if fetch_metadata is True:
                 obj_metadata, _ = recursive_search(
@@ -310,21 +325,13 @@ class PreProcessor:
             else:
                 if self.lemmatizer:
                     current_text_object = [
-                        Token(self.lemmatizer.get(word, word), "", word.ext) for word in current_text_object
+                        Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext)
+                        for word in current_text_object
                     ]
                 docs.append(current_text_object)
         if fetch_metadata is False:
             metadata = [{"filename": os.path.basename(text)}]  # Return empty shell matching the number of docs returned
         return docs, metadata
-
-    def process_string(self, text):
-        """Process string and return a list of tokens"""
-        tokens = list(self.tokenize_text(text))
-        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            tokens = self.pos_tag_text(tokens)
-        elif self.lemmatizer and self.lemmatizer != "spacy":
-            tokens = [Token(self.lemmatizer.get(word, word), "", word.ext) for word in tokens]
-        return self.__normalize_doc(tokens)
 
     def __get_stopwords(self, file_path):
         if file_path is None or os.path.isfile(file_path) is False:
@@ -364,20 +371,13 @@ class PreProcessor:
                         ngram_text = "_".join(t.text for t in sorted(local_ngram, key=lambda x: x.text))
                     ext = local_ngram[0].ext
                     ext["end_byte"] = local_ngram[-1].ext["end_byte"]
-                    ngrams.append(Token(ngram_text, None, ext))
+                    ngrams.append(Token(ngram_text, ngram_text, None, ext))
                 ngram.popleft()
         return ngrams
 
-    def __pos_tagger(self, tokens):
-        filtered_tokens = []
-        if self.pos_to_keep:
-            filtered_tokens = [Token(t.text, t.pos_) for t in self.nlp(" ".join(tokens)) if t.pos_ in self.pos_to_keep]
-        else:
-            filtered_tokens = self.nlp(" ".join(tokens))
-        return filtered_tokens
-
     def normalize(self, token, stemmer):  # This function can be used standalone
         """Normalize a single string token"""
+        token = token.strip()
         if self.lowercase:
             token = token.lower()
         if token in self.stopwords:
@@ -397,7 +397,7 @@ class PreProcessor:
             token = str(mmh3.hash(token))
         return token
 
-    def __normalize_doc(self, doc):
+    def __normalize_doc(self, doc, keep_all=False):
         """Normalize single documents"""
         normalized_doc = []
         if self.stemmer is True:
@@ -406,9 +406,10 @@ class PreProcessor:
         else:
             stemmer = None
         for inner_token in doc:
+            surface_form = inner_token.surface_form
             normalized_token = self.normalize(inner_token.text, stemmer)
-            if normalized_token:
-                normalized_doc.append(Token(normalized_token, inner_token.pos_, inner_token.ext))
+            if normalized_token or keep_all is True:
+                normalized_doc.append(Token(normalized_token, surface_form, inner_token.pos_, inner_token.ext))
         return normalized_doc
 
     def format(self, doc, metadata):
@@ -445,14 +446,18 @@ class PreProcessor:
         if self.pos_to_keep:
             if self.lemmatizer and self.lemmatizer != "spacy":
                 doc = [
-                    Token(self.lemmatizer.get(t.text.lower(), t.text), t.pos_, old_t.ext)
+                    Token(self.lemmatizer.get(t.text.lower(), t.text.lower()), old_t.surface_form, t.pos_, old_t.ext)
                     for t, old_t in zip(doc, text)
                     if t.pos_ in self.pos_to_keep
                 ]
             else:
-                doc = [Token(t.lemma_, t.pos_, old_t.ext) for t, old_t in zip(doc, text) if t.pos_ in self.pos_to_keep]
+                doc = [
+                    Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext)
+                    for t, old_t in zip(doc, text)
+                    if t.pos_ in self.pos_to_keep
+                ]
         else:
-            doc = [Token(t.lemma_, t.pos_, old_t.ext) for t, old_t in zip(doc, text)]
+            doc = [Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext) for t, old_t in zip(doc, text)]
         return doc
 
     def remove_tags(self, text):
@@ -470,9 +475,9 @@ class PreProcessor:
             doc = self.remove_tags(doc)
         for match in self.token_regex.finditer(doc):
             if self.modernize:
-                yield Token(self.modernize(match[0]))
+                yield Token(self.modernize(match[0]), match[0])
             else:
-                yield Token(match[0])
+                yield Token(match[0], match[0])
 
 
 def recursive_search(cursor, object_id, object_type, metadata_cache, text_path):

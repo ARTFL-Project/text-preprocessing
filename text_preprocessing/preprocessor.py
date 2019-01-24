@@ -259,7 +259,7 @@ class PreProcessor:
         """Take a string and return a list of preprocessed tokens"""
         tokens = self.tokenize_text(text)
         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            tokens = self.pos_tag_text(tokens)
+            tokens = self.pos_tag_text(tokens, keep_all=True)
         elif self.lemmatizer and self.lemmatizer != "spacy":
             tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
         return self.__normalize_doc(tokens, keep_all=True)
@@ -439,26 +439,38 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def pos_tag_text(self, text):
+    def pos_tag_text(self, text, keep_all=False):
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
-        doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
+        text = list(text)
+        tagged_doc = self.nlp.tagger(spacy.tokens.Doc(self.nlp.vocab, [w.text for w in text]))
         if self.pos_to_keep:
             if self.lemmatizer and self.lemmatizer != "spacy":
-                doc = [
-                    Token(self.lemmatizer.get(t.text.lower(), t.text.lower()), old_t.surface_form, t.pos_, old_t.ext)
-                    for t, old_t in zip(doc, text)
-                    if t.pos_ in self.pos_to_keep
-                ]
+                processed_doc = []
+                for token, old_token in zip(tagged_doc, text):
+                    if token.pos_ in self.pos_to_keep:
+                        processed_doc.append(
+                            Token(
+                                self.lemmatizer.get(token.text.lower(), token.text.lower()),
+                                old_token.surface_form,
+                                token.pos_,
+                                old_token.ext,
+                            )
+                        )
+                    elif keep_all is True:
+                        processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
             else:
-                doc = [
-                    Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext)
-                    for t, old_t in zip(doc, text)
-                    if t.pos_ in self.pos_to_keep
-                ]
+                processed_doc = []
+                for token, old_token in zip(tagged_doc, text):
+                    if token.pos_ in self.pos_to_keep:
+                        processed_doc.append(Token(token.lemma_, old_token.surface_form, token.pos_, old_token.ext))
+                    elif keep_all is True:
+                        processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
         else:
-            doc = [Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext) for t, old_t in zip(doc, text)]
-        return doc
+            processed_doc = [
+                Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext) for t, old_t in zip(tagged_doc, text)
+            ]
+        return processed_doc
 
     def remove_tags(self, text):
         """Strip XML tags"""

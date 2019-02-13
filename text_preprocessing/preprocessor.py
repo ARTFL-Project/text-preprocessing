@@ -70,6 +70,7 @@ class Tokens:
     def __init__(self, tokens, metadata):
         self.tokens = tokens
         self.metadata = metadata
+        self.length = len(self.tokens)
 
     def __iter__(self):
         for token in self.tokens:
@@ -79,7 +80,31 @@ class Tokens:
         return self.tokens[item]
 
     def __len__(self):
-        return len(self.tokens)
+        return self.length
+
+    def split_tokens(self, n):
+        """ Divide Tokens in to smaller Tokens of n length"""
+        max_index = self.length - 1
+        for i in range(0, len(self), n):
+            end = i + n
+            if end > max_index:
+                metadata = {
+                    **self.metadata,
+                    "start_byte": self[i].ext["start_byte"],
+                    "end_byte": self[max_index].ext["end_byte"],
+                }
+            else:
+                metadata = {
+                    **self.metadata,
+                    "start_byte": self[i].ext["start_byte"],
+                    "end_byte": self[end].ext["end_byte"],
+                }
+            yield Tokens(self[i:end], metadata)
+
+    def extend(self, tokens):
+        """Extend size of Tokens"""
+        self.tokens.extend(tokens)
+        self.metadata["end_byte"] = tokens.metadata["end_byte"]
 
 
 class Lemmatizer:
@@ -176,7 +201,7 @@ class PreProcessor:
             except Exception as e:
                 print(e)
                 self.nlp = False
-                print("Spacy does not support {} POS tagging".format(language))
+                print("Error loading Spacy language model. Spacy may not support {} POS tagging".format(language))
         else:
             self.nlp = False
         self.token_regex = re.compile(rf"{word_regex}|[^{word_regex}]")
@@ -202,13 +227,15 @@ class PreProcessor:
                         text_output = self.format(text_object, object_metadata)
                         if self.post_func is None:
                             yield text_output
-                        yield self.post_func(text_output)
+                        else:
+                            yield self.post_func(text_output)
                 else:
                     doc, metadata = self.process_text(text)
                     text_output = self.format(doc, metadata)
                     if self.post_func is None:
                         yield text_output
-                    yield self.post_func(text_output)
+                    else:
+                        yield self.post_func(text_output)
                 if self.progress is True:
                     count += 1
                     print("\rProcessing texts... {} done".format(count), end="", flush=True)
@@ -502,7 +529,7 @@ def recursive_search(cursor, object_id, object_type, metadata_cache, text_path):
         if current_id in metadata_cache:
             result = metadata_cache[current_id]
         else:
-            cursor.execute("SELECT * from toms where philo_id = ?", (current_id,))
+            cursor.execute("SELECT * from toms WHERE philo_id = ?", (current_id,))
             result = cursor.fetchone()
         if result is not None:
             for field in result.keys():
@@ -513,6 +540,12 @@ def recursive_search(cursor, object_id, object_type, metadata_cache, text_path):
                         else:
                             obj_metadata[field] = result[field] or ""
                         metadata_cache[current_id][field] = obj_metadata[field]
+            if object_level == 1:  # we count from the first div to skip the TEI header
+                cursor.execute(
+                    f"SELECT start_byte FROM toms WHERE philo_type='div1' AND philo_id LIKE '% 1 0 0 0 0 0' LIMIT 1"
+                )
+                obj_metadata["start_byte"] = cursor.fetchone()["start_byte"]
+                metadata_cache[current_id]["start_byte"] = obj_metadata["start_byte"]
         object_id.pop()
         object_level -= 1
     return obj_metadata, metadata_cache

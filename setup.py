@@ -6,8 +6,8 @@ from setuptools import setup
 
 setup(
     name="text_preprocessing",
-    version="0.3",
-    author="The ARTFL Project and OBVIL",
+    version="0.4",
+    author="The ARTFL Project",
     author_email="clovisgladstone@gmail.com",
     packages=["text_preprocessing", "text_preprocessing.lang"],
     install_requires=["unidecode", "PyStemmer", "spacy", "msgpack==0.5.6", "mmh3"],

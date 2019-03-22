@@ -39836,6 +39836,7 @@ french_dict = {
     "loier": "loyer",
     "loiers": "loyers",
     "loisse": "laisse",
+    "loix": "lois",
     "lome": "lomé",
     "londres": "londrès",
     "londrés": "londrès",

@@ -10,6 +10,7 @@ import string
 import sys
 import unicodedata
 from collections import defaultdict, deque
+from html import unescape as unescape_html
 from itertools import combinations
 from typing import (
     Any,
@@ -27,6 +28,8 @@ from typing import (
     overload,
     DefaultDict,
 )
+from xml.sax.saxutils import unescape as unescape_xml
+
 
 import msgpack
 import spacy
@@ -91,7 +94,7 @@ class Token(str):
         return self
 
     def __repr__(self) -> str:
-        return self.text
+        return f"text={repr(self.text)}, surface_form={repr(self.surface_form)}, pos={self.pos_}, ext={repr(self.ext)}"
 
     def __add__(self, other) -> str:
         return self.text + other
@@ -111,14 +114,10 @@ class Tokens:
 
     """
 
-    tokens: List[Token]
-    metadata: Dict[str, Any]
-    length: int
-
     def __init__(self, tokens: List[Token], metadata: Dict[str, Any]):
-        self.tokens = tokens
-        self.metadata = metadata
-        self.length = len(self.tokens)
+        self.tokens: Deque[Token] = deque(tokens)
+        self.metadata: Dict[str, Any] = metadata
+        self.length: int = len(self.tokens)
 
     def __iter__(self) -> Iterator[Token]:
         for token in self.tokens:
@@ -129,13 +128,16 @@ class Tokens:
         ...
 
     @overload
-    def __getitem__(self, index: slice) -> List[Token]:
+    def __getitem__(self, index: slice) -> Iterable[Token]:
         ...
 
-    def __getitem__(self, index: Union[int, slice]) -> Union[Token, List[Token]]:
-        if isinstance(index, int) or isinstance(index, slice):
+    def __getitem__(self, index: Union[int, slice]) -> Union[Token, Iterable[Token]]:
+        if isinstance(index, int):
             return self.tokens[index]
+        elif isinstance(index, slice):
+            return Tokens(list(self.tokens)[index], self.metadata)
         else:
+            print(f"{repr(index)} of type {type(index)} is not an index or slice")
             raise TypeError
 
     def __len__(self) -> int:
@@ -145,6 +147,12 @@ class Tokens:
         if self.length == 0:
             return False
         return True
+
+    def __repr__(self):
+        return repr([repr(t) for t in self.tokens])
+
+    def __str__(self):
+        return repr([str(t) for t in self.tokens])
 
     def split_tokens(self, n: int) -> Iterator["Tokens"]:
         """ Divide Tokens in to smaller Tokens of n length
@@ -177,18 +185,55 @@ class Tokens:
     def extend(self, tokens) -> None:
         """Extend size of Tokens"""
         self.tokens.extend(tokens)
+        if not self.metadata:
+            self.metadata = tokens.metadata
         self.metadata["end_byte"] = tokens.metadata["end_byte"]
+
+    def pop(self) -> Token:
+        """Remove last token from self.tokens"""
+        try:
+            token = self.tokens.pop()
+            self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
+            return token
+        except IndexError:
+            return Token("")
+
+    def popleft(self) -> Token:
+        """Remove first token from self.tokens"""
+        try:
+            token = self.tokens.popleft()
+            self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
+            return token
+        except IndexError:
+            return Token("")
+
+    def append(self, token: Token):
+        """Append Token"""
+        if not self.tokens:
+            self.metadata["start_byte"] = token.ext["start_byte"]
+        self.tokens.append(token)
+        self.metadata["end_byte"] = token.ext["end_byte"]
+
+    def appendleft(self, token: Token):
+        """Append Token to the left of tokens"""
+        if not self.tokens:
+            self.metadata["end_byte"] = token.ext["end_byte"]
+        self.tokens.appendleft(token)
+        self.metadata["start_byte"] = token.ext["start_byte"]
+
+    def purge(self):
+        """Remove empty tokens"""
+        self.tokens = deque(token for token in self.tokens if token)
+        self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
+        self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
+        self.length = len(self.tokens)
 
 
 class Lemmatizer:
     """Lemmatizer wrapper"""
 
-    input: str
-    loaded: bool
-    lemmatizer: Dict[str, str]
-
     def __init__(self, input_file: str):
-        self.input = input_file
+        self.input: str = input_file
         self.loaded: bool = False
         self.lemmatizer: Dict[str, str] = {}
 
@@ -306,7 +351,7 @@ class PreProcessor:
                 exit(-1)
         else:
             self.nlp = False
-        self.token_regex = re.compile(rf"{word_regex}|[^{word_regex}]")
+        self.token_regex = re.compile(rf"({word_regex})|([^{word_regex}])")
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)
         if workers is None:
@@ -316,9 +361,13 @@ class PreProcessor:
         self.post_func = post_processing_function
         self.progress = progress
 
-    def process_texts(self, texts: Iterable[str]) -> Iterable[Union[Tokens, List[Tokens]]]:
+    def process_texts(
+        self, texts: Iterable[str], keep_all: bool = False, progress: bool = True
+    ) -> Iterable[Union[Tokens, List[Tokens]]]:
         """Process all documents. Returns an iterator of documents"""
         count: int = 0
+        self.progress = progress
+        self.keep_all = keep_all
         if self.progress is True:
             print("\nProcessing texts...", end="", flush=True)
         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
@@ -384,14 +433,15 @@ class PreProcessor:
             tokens = list(tokens)  # We need to convert generator to list for pickling in multiprocessing
         return tokens, metadata
 
-    def process_string(self, text):
+    def process_string(self, text, keep_all=True):
         """Take a string and return a list of preprocessed tokens"""
         tokens = self.tokenize_text(text)
+        self.keep_all = keep_all
         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            tokens = self.pos_tag_text(tokens, keep_all=True)
+            tokens = self.pos_tag_text(tokens)
         elif self.lemmatizer and self.lemmatizer != "spacy":
             tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
-        return self.__normalize_doc(tokens, keep_all=True)
+        return self.__normalize_doc(tokens)
 
     def process_philo_text(self, text: str, fetch_metadata: bool = True):
         """Process files produced by PhiloLogic parser"""
@@ -418,7 +468,7 @@ class PreProcessor:
                     if current_text_object:
                         if fetch_metadata is True:
                             obj_metadata, metadata_cache = recursive_search(
-                                cursor, current_object_id, self.text_object_type, metadata_cache, text_path
+                                cursor, current_object_id, self.text_object_type, metadata_cache, text_path, text
                             )
                             metadata.append(obj_metadata)
                         else:
@@ -445,7 +495,7 @@ class PreProcessor:
         if current_text_object:
             if fetch_metadata is True:
                 obj_metadata, _ = recursive_search(
-                    cursor, current_object_id, self.text_object_type, metadata_cache, text_path
+                    cursor, current_object_id, self.text_object_type, metadata_cache, text_path, text
                 )
                 metadata.append(obj_metadata)
             if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
@@ -464,7 +514,8 @@ class PreProcessor:
 
     def __get_stopwords(self, file_path: Optional[str]) -> Set[str]:
         if file_path is None or os.path.isfile(file_path) is False:
-            return set()
+            print("Stopwords file", file_path, "not found. Exiting...")
+            exit()
         stopwords = set()
         with open(file_path) as stopword_file:
             for line in stopword_file:
@@ -508,6 +559,7 @@ class PreProcessor:
     def normalize(self, token: str, stemmer: Optional[Stemmer]) -> str:  # This function can be used standalone
         """Normalize a single string token"""
         token = token.strip()
+        token = convert_entities(token)
         if self.lowercase:
             token = token.lower()
         if token in self.stopwords:
@@ -529,7 +581,7 @@ class PreProcessor:
             token = str(mmh3.hash(token))
         return token
 
-    def __normalize_doc(self, doc: List[Token], keep_all: bool = False) -> List[Token]:
+    def __normalize_doc(self, doc: List[Token]) -> List[Token]:
         """Normalize single documents"""
         normalized_doc: List[Token] = []
         stemmer: Optional[Stemmer]
@@ -541,7 +593,7 @@ class PreProcessor:
         for inner_token in doc:
             surface_form = inner_token.surface_form
             normalized_token = self.normalize(inner_token.text, stemmer)
-            if normalized_token or keep_all is True:
+            if normalized_token or self.keep_all is True:
                 normalized_doc.append(Token(normalized_token, surface_form, inner_token.pos_, inner_token.ext))
         return normalized_doc
 
@@ -572,7 +624,7 @@ class PreProcessor:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def pos_tag_text(self, text: Iterable[Token], keep_all: bool = False) -> List[Token]:
+    def pos_tag_text(self, text: Iterable[Token]) -> List[Token]:
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
         text = list(text)
@@ -590,14 +642,14 @@ class PreProcessor:
                                 old_token.ext,
                             )
                         )
-                    elif keep_all is True:
+                    elif self.keep_all is True:
                         processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
             else:
                 processed_doc = []
                 for token, old_token in zip(tagged_doc, text):
                     if token.pos_ in self.pos_to_keep:
                         processed_doc.append(Token(token.lemma_, old_token.surface_form, token.pos_, old_token.ext))
-                    elif keep_all is True:
+                    elif self.keep_all is True:
                         processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
         else:
             processed_doc = [
@@ -631,11 +683,12 @@ def recursive_search(
     object_type: str,
     metadata_cache: DefaultDict[str, Dict[str, Any]],
     text_path: str,
+    text: str,
 ) -> Tuple[Dict[str, Any], DefaultDict[str, Dict[str, Any]]]:
     """Recursive look-up of PhiloLogic objects"""
     object_id = position.split()
     object_level = PHILO_TEXT_OBJECT_TYPE[object_type]
-    obj_metadata: Dict[str, Any] = {}
+    obj_metadata: Dict[str, Any] = {"parsed_filename": text}
     while object_id:
         current_id = f"{' '.join(object_id[:object_level])} {' '.join('0' for _ in range(7 - object_level))}"
         if current_id in metadata_cache:
@@ -661,3 +714,9 @@ def recursive_search(
         object_id.pop()
         object_level -= 1
     return obj_metadata, metadata_cache
+
+
+def convert_entities(text):
+    text = unescape_html(text)
+    text = unescape_xml(text)
+    return text

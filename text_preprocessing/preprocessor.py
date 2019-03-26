@@ -556,13 +556,14 @@ class PreProcessor:
                 ngram.popleft()
         return ngrams
 
-    def normalize(self, token: str, stemmer: Optional[Stemmer]) -> str:  # This function can be used standalone
+    def normalize(self, orig_token: Token, stemmer: Optional[Stemmer]) -> str:  # This function can be used standalone
         """Normalize a single string token"""
+        token = orig_token.text
         token = token.strip()
         token = convert_entities(token)
         if self.lowercase:
             token = token.lower()
-        if token in self.stopwords:
+        if token in self.stopwords or orig_token.surface_form in self.stopwords:
             return ""
         if self.strip_punctuation:
             token = token.translate(PUNCTUATION_MAP)
@@ -592,7 +593,7 @@ class PreProcessor:
             stemmer = None
         for inner_token in doc:
             surface_form = inner_token.surface_form
-            normalized_token = self.normalize(inner_token.text, stemmer)
+            normalized_token = self.normalize(inner_token, stemmer)
             if normalized_token or self.keep_all is True:
                 normalized_doc.append(Token(normalized_token, surface_form, inner_token.pos_, inner_token.ext))
         return normalized_doc

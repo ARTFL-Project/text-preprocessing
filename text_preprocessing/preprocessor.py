@@ -29,9 +29,9 @@ from typing import (
     DefaultDict,
 )
 from xml.sax.saxutils import unescape as unescape_xml
-
-
 import msgpack
+
+import json
 import spacy
 from multiprocess import Pool, cpu_count
 from unidecode import unidecode
@@ -76,8 +76,9 @@ class Token(str):
     def __init__(self, text: str, surface_form: str = "", pos_: str = "", ext: Dict[str, Any] = None):
         self.text = text or ""
         self.surface_form = surface_form or text
-        self.pos_ = pos_ or ""
         self.ext = ext or {}
+        self.ext["pos"] = pos_
+        self.pos_ = pos_
 
     def __hash__(self):
         return hash(self.text)
@@ -189,23 +190,30 @@ class Tokens:
             self.metadata = tokens.metadata
         self.metadata["end_byte"] = tokens.metadata["end_byte"]
 
-    def pop(self) -> Token:
+    def pop(self) -> Optional[Token]:
         """Remove last token from self.tokens"""
-        try:
+        if self.tokens:
             token = self.tokens.pop()
-            self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
+            try:
+                self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
+                self.length -= 1
+                return token
+            except IndexError:
+                self.length = 0
             return token
-        except IndexError:
-            return Token("")
+        return None
 
-    def popleft(self) -> Token:
+    def popleft(self) -> Optional[Token]:
         """Remove first token from self.tokens"""
-        try:
+        if self.tokens:
             token = self.tokens.popleft()
-            self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
+            try:
+                self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
+                self.length -= 1
+            except IndexError:
+                self.length = 0
             return token
-        except IndexError:
-            return Token("")
+        return None
 
     def append(self, token: Token):
         """Append Token"""
@@ -213,6 +221,7 @@ class Tokens:
             self.metadata["start_byte"] = token.ext["start_byte"]
         self.tokens.append(token)
         self.metadata["end_byte"] = token.ext["end_byte"]
+        self.length += 1
 
     def appendleft(self, token: Token):
         """Append Token to the left of tokens"""
@@ -220,13 +229,34 @@ class Tokens:
             self.metadata["end_byte"] = token.ext["end_byte"]
         self.tokens.appendleft(token)
         self.metadata["start_byte"] = token.ext["start_byte"]
+        self.length += 1
 
     def purge(self):
         """Remove empty tokens"""
         self.tokens = deque(token for token in self.tokens if token)
-        self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
-        self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
         self.length = len(self.tokens)
+        if self.length:
+            self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
+            self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
+        else:
+            self.metadata["start_byte"] = 0
+            self.metadata["end_byte"] = 0
+
+    def save(self, path):
+        """Save Tokens to disk"""
+        tokens_to_serialize = {"tokens": [], "metadata": self.metadata}
+        for token in self:
+            tokens_to_serialize["tokens"].append((token.text, token.surface_form, token.pos_, token.ext))
+        with open(path, "w") as output:
+            json.dump(tokens_to_serialize, output)
+
+    def load(self, path):
+        """Load tokens from disk"""
+        with open(path, "r") as input_file:
+            tokens = json.load(input_file)
+        self.metadata = tokens["metadata"]
+        self.tokens = deque(Token(t[0], t[1], t[2], t[3]) for t in tokens["tokens"])
+
 
 
 class Lemmatizer:

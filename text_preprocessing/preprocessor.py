@@ -12,34 +12,20 @@ import unicodedata
 from collections import defaultdict, deque
 from html import unescape as unescape_html
 from itertools import combinations
-from typing import (
-    Any,
-    Callable,
-    Deque,
-    Dict,
-    Set,
-    Iterator,
-    Iterable,
-    List,
-    Optional,
-    Pattern,
-    Tuple,
-    Union,
-    overload,
-    DefaultDict,
-)
+from typing import (Any, Callable, DefaultDict, Deque, Dict, Iterable,
+                    Iterator, List, Optional, Pattern, Set, Tuple, Union,
+                    overload)
 from xml.sax.saxutils import unescape as unescape_xml
-import msgpack
 
-import json
+import msgpack
 import spacy
 from multiprocess import Pool, cpu_count
+from text_preprocessing.modernize import modernizer
 from unidecode import unidecode
 
 import mmh3
+import rapidjson
 from Stemmer import Stemmer
-
-from .modernize import modernizer
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P"))
 PUNCTUATION_CLASS = set([chr(i) for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P")])
@@ -49,6 +35,11 @@ TAGS = re.compile(r"<[^>]+>")
 WORD_CHARS = re.compile(r"\w+")
 
 PHILO_TEXT_OBJECT_TYPE: dict = {"doc": 1, "div1": 2, "div2": 3, "div3": 4, "para": 5, "sent": 6, "word": 7}
+
+SPACY_LANGUAGE_MODEL_MAP = {
+    "french": "fr_core_news_sm",
+    "english": "en-core-news-md"
+}
 
 
 class Token(str):
@@ -162,7 +153,7 @@ class Tokens:
             n: split Tokens obj into a list of Tokens of length n
 
         Returns:
-            A list of Tokens
+            A Iterator of Tokens
 
         """
         max_index: int = self.length - 1
@@ -176,11 +167,7 @@ class Tokens:
                 }
                 yield Tokens(self[i:max_index], metadata)
             else:
-                metadata = {
-                    **self.metadata,
-                    "start_byte": self[i].ext["start_byte"],
-                    "end_byte": self[end - 1].ext["end_byte"],
-                }
+                metadata = {**self.metadata, "start_byte": self[i].ext["start_byte"], "end_byte": self[end - 1].ext["end_byte"]}
                 yield Tokens(self[i:end], metadata)
 
     def extend(self, tokens) -> None:
@@ -258,7 +245,6 @@ class Tokens:
         self.tokens = deque(Token(t[0], t[1], t[2], t[3]) for t in tokens["tokens"])
 
 
-
 class Lemmatizer:
     """Lemmatizer wrapper"""
 
@@ -291,32 +277,6 @@ class Lemmatizer:
 class PreProcessor:
     """ Text Preprocessing class"""
 
-    modernize: Any
-    stemmer: bool
-    ngrams: int
-    ngram_window: int
-    ngram_word_order: bool
-    stopwords: Set[str]
-    lemmatizer: Any
-    strip_punctuation: bool
-    strip_numbers: bool
-    strip_tags: bool
-    lowercase: bool
-    min_word_length: int
-    ascii: bool
-    pos_to_keep: Set[str]
-    is_philo_db: bool
-    text_object_type: str
-    return_type: str
-    hash_tokens: bool
-    nlp: Any
-    token_regex: Pattern
-    word_tokenizer: Pattern
-    sentence_tokenizer: Pattern
-    workers: int
-    post_func: Optional[Callable]
-    progress: bool
-
     def __init__(
         self,
         word_regex: str = r"\w+",
@@ -335,6 +295,7 @@ class PreProcessor:
         lowercase: bool = True,
         min_word_length: int = 2,
         ascii: bool = False,
+        convert_entities: bool = False,
         with_pos: bool = False,
         pos_to_keep: List[str] = [],
         is_philo_db: bool = False,
@@ -363,6 +324,7 @@ class PreProcessor:
         self.lowercase = lowercase
         self.min_word_length = min_word_length
         self.ascii = ascii
+        self.convert_entities = convert_entities
         self.pos_to_keep = set(pos_to_keep)
         self.with_pos = with_pos
         self.is_philo_db = is_philo_db
@@ -372,10 +334,11 @@ class PreProcessor:
         if self.pos_to_keep or self.with_pos is True or self.lemmatizer == "spacy":
             # spacy.prefer_gpu()
             try:
+                spacy_language_code = SPACY_LANGUAGE_MODEL_MAP[language]
                 self.nlp = spacy.load(
-                    language[:2], disable=["parser", "ner", "textcat"]
+                    spacy_language_code, disable=["parser", "ner", "textcat"]
                 )  # assuming first two letters define language model
-            except Exception as e:
+            except IndexError as e:
                 print(e)
                 print("Error loading Spacy language model. Spacy may not support {} POS tagging".format(language))
                 exit(-1)
@@ -391,9 +354,7 @@ class PreProcessor:
         self.post_func = post_processing_function
         self.progress = progress
 
-    def process_texts(
-        self, texts: Iterable[str], keep_all: bool = False, progress: bool = True
-    ) -> Iterable[Union[Tokens, List[Tokens]]]:
+    def process_texts(self, texts: Iterable[str], keep_all: bool = False, progress: bool = True) -> Iterable[Union[Tokens, List[Tokens]]]:
         """Process all documents. Returns an iterator of documents"""
         count: int = 0
         self.progress = progress
@@ -434,10 +395,7 @@ class PreProcessor:
         if self.is_philo_db is True:
             text_objects, metadata = self.process_philo_text(text)
             if self.post_func is None:
-                return [
-                    self.format(processed_text, obj_metadata)
-                    for processed_text, obj_metadata in zip(text_objects, metadata)
-                ]
+                return [self.format(processed_text, obj_metadata) for processed_text, obj_metadata in zip(text_objects, metadata)]
             else:
                 return [
                     self.post_func(self.format(processed_text, obj_metadata))
@@ -473,6 +431,7 @@ class PreProcessor:
             tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
         return self.__normalize_doc(tokens)
 
+    # @profile
     def process_philo_text(self, text: str, fetch_metadata: bool = True):
         """Process files produced by PhiloLogic parser"""
         docs: List = []
@@ -490,7 +449,7 @@ class PreProcessor:
         metadata: List = []
         with open(text) as philo_db_text:
             for line in philo_db_text:
-                word_obj: Dict[str, Any] = json.loads(line.strip())
+                word_obj: Dict[str, Any] = rapidjson.loads(line.strip())
                 object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[self.text_object_type]])
                 if current_object_id == "":
                     current_object_id = object_id
@@ -509,24 +468,19 @@ class PreProcessor:
                         else:
                             if self.lemmatizer:
                                 current_text_object = [
-                                    Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext)
-                                    for word in current_text_object
+                                    Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext) for word in current_text_object
                                 ]
                             docs.append(current_text_object)
                         current_text_object = []
                     current_object_id = object_id
                 if self.modernize:
                     word_obj["token"] = self.modernize(word_obj["token"])
-                    current_text_object.append(
-                        Token(self.modernize(word_obj["token"]), word_obj["token"], "", word_obj)
-                    )
+                    current_text_object.append(Token(self.modernize(word_obj["token"]), word_obj["token"], "", word_obj))
                 else:
                     current_text_object.append(Token(word_obj["token"], word_obj["token"], "", word_obj))
         if current_text_object:
             if fetch_metadata is True:
-                obj_metadata, _ = recursive_search(
-                    cursor, current_object_id, self.text_object_type, metadata_cache, text_path, text
-                )
+                obj_metadata, _ = recursive_search(cursor, current_object_id, self.text_object_type, metadata_cache, text_path, text)
                 metadata.append(obj_metadata)
             if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
                 current_text_object = self.pos_tag_text(current_text_object)
@@ -534,8 +488,7 @@ class PreProcessor:
             else:
                 if self.lemmatizer:
                     current_text_object = [
-                        Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext)
-                        for word in current_text_object
+                        Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext) for word in current_text_object
                     ]
                 docs.append(current_text_object)
         if fetch_metadata is False:
@@ -543,7 +496,9 @@ class PreProcessor:
         return docs, metadata
 
     def __get_stopwords(self, file_path: Optional[str]) -> Set[str]:
-        if file_path is None or os.path.isfile(file_path) is False:
+        if file_path is None:
+            return set()
+        elif os.path.isfile(file_path) is False:
             print("Stopwords file", file_path, "not found. Exiting...")
             exit()
         stopwords = set()
@@ -576,12 +531,15 @@ class PreProcessor:
             ngram.append(token)
             if len(ngram) == self.ngram_window:
                 for local_ngram in combinations(ngram, self.ngrams):
+                    ext: Dict[str, Any] = local_ngram[0].ext
                     if self.ngram_word_order is True:
                         ngram_text = "_".join(t.text for t in local_ngram)
+                        ext["end_byte"] = local_ngram[-1].ext["end_byte"]
                     else:
                         ngram_text = "_".join(t.text for t in sorted(local_ngram, key=lambda x: x.text))
-                    ext: Dict[str, Any] = local_ngram[0].ext
-                    ext["end_byte"] = local_ngram[-1].ext["end_byte"]
+                        ngram_sorted_position = sorted(local_ngram, key=lambda x: x.ext["start_byte"])
+                        ext["start_byte"] = ngram_sorted_position[0].ext["start_byte"]
+                        ext["end_byte"] = ngram_sorted_position[-1].ext["end_byte"]
                     ngrams.append(Token(ngram_text, ngram_text, "", ext))
                 ngram.popleft()
         return ngrams
@@ -590,7 +548,8 @@ class PreProcessor:
         """Normalize a single string token"""
         token = orig_token.text
         token = token.strip()
-        token = convert_entities(token)
+        if self.convert_entities is True:
+            token = convert_entities(token)
         if self.lowercase:
             token = token.lower()
         if token in self.stopwords or orig_token.surface_form in self.stopwords:
@@ -599,9 +558,8 @@ class PreProcessor:
             token = token.translate(PUNCTUATION_MAP)
         elif token in PUNCTUATION_CLASS:
             return token
-        if self.strip_numbers:
-            if NUMBERS.search(token):
-                return ""
+        if self.strip_numbers and NUMBERS.search(token):
+            return ""
         if stemmer is not None:
             token = stemmer.stemWord(token)
         if len(token) < self.min_word_length:
@@ -622,10 +580,9 @@ class PreProcessor:
         else:
             stemmer = None
         for inner_token in doc:
-            surface_form = inner_token.surface_form
             normalized_token = self.normalize(inner_token, stemmer)
             if normalized_token or self.keep_all is True:
-                normalized_doc.append(Token(normalized_token, surface_form, inner_token.pos_, inner_token.ext))
+                normalized_doc.append(Token(normalized_token, inner_token.surface_form, inner_token.pos_, inner_token.ext))
         return normalized_doc
 
     def format(self, doc: List[Token], metadata: Dict[str, Any]) -> Union[Tokens, List[Tokens]]:
@@ -683,9 +640,7 @@ class PreProcessor:
                     elif self.keep_all is True:
                         processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
         else:
-            processed_doc = [
-                Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext) for t, old_t in zip(tagged_doc, text)
-            ]
+            processed_doc = [Token(t.lemma_, old_t.surface_form, t.pos_, old_t.ext) for t, old_t in zip(tagged_doc, text)]
         return processed_doc
 
     def remove_tags(self, text: str) -> str:
@@ -709,12 +664,7 @@ class PreProcessor:
 
 
 def recursive_search(
-    cursor: sqlite3.Cursor,
-    position: str,
-    object_type: str,
-    metadata_cache: DefaultDict[str, Dict[str, Any]],
-    text_path: str,
-    text: str,
+    cursor: sqlite3.Cursor, position: str, object_type: str, metadata_cache: DefaultDict[str, Dict[str, Any]], text_path: str, text: str
 ) -> Tuple[Dict[str, Any], DefaultDict[str, Dict[str, Any]]]:
     """Recursive look-up of PhiloLogic objects"""
     object_id = position.split()
@@ -737,9 +687,7 @@ def recursive_search(
                             obj_metadata[field] = result[field] or ""
                         metadata_cache[current_id][field] = obj_metadata[field]
             if object_level == 1:  # we count from the first div to skip the TEI header
-                cursor.execute(
-                    f"SELECT start_byte FROM toms WHERE philo_type='div1' AND philo_id LIKE '% 1 0 0 0 0 0' LIMIT 1"
-                )
+                cursor.execute(f"SELECT start_byte FROM toms WHERE philo_type='div1' AND philo_id LIKE '% 1 0 0 0 0 0' LIMIT 1")
                 obj_metadata["start_byte"] = cursor.fetchone()["start_byte"]
                 metadata_cache[current_id]["start_byte"] = obj_metadata["start_byte"]
         object_id.pop()
@@ -751,3 +699,37 @@ def convert_entities(text):
     text = unescape_html(text)
     text = unescape_xml(text)
     return text
+
+
+def main():
+    import timeit
+    from math import floor
+
+    word_num = 0
+    for file in os.scandir(sys.argv[1]):
+        word_num += len(open(file.path).readlines())
+    # from ..text_preprocessing import PreProcessor, Tokens
+    preproc = PreProcessor(
+        # stopwords="/shared/PhiloLogic4/extras/FrenchStopwords.txt",
+        # lemmatizer="spacy",
+        # modernize=True,
+        # stemmer=True,
+        # strip_tags=True,
+        is_philo_db=True,
+        # pos_to_keep=["NOUN", "PROPN", "ADJ"],
+        # strip_punctuation=False,
+        # text_object_type="div1",
+        language="french",
+        # ascii=True,
+        min_word_length=3,
+        # return_type="sentences",
+        workers=32,
+    )
+    start_time = timeit.default_timer()
+    _ = [f for f in preproc.process_texts((i.path for i in os.scandir(sys.argv[1])))]
+    elapsed = timeit.default_timer() - start_time
+    print("\n", elapsed, floor(word_num / elapsed), "words processed per second")
+
+
+if __name__ == "__main__":
+    main()

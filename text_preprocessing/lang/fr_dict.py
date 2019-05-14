@@ -3536,7 +3536,7 @@ french_dict = {
     "amusoient": "amusaient",
     "amusois": "amusais",
     "amusoit": "amusait",
-    "amy": "ammi",
+    "amy": "ami",
     "amyable": "amiable",
     "amye": "amie",
     "amyens": "amiens",

@@ -370,19 +370,6 @@ class PreProcessor:
         self.text_object_type = text_object_type
         self.return_type = return_type
         self.hash_tokens = hash_tokens
-        # if self.pos_to_keep or self.with_pos is True or self.lemmatizer == "spacy":
-        #     # spacy.prefer_gpu()
-        #     try:
-        #         spacy_language_code = SPACY_LANGUAGE_MODEL_MAP[language]
-        #         self.nlp = spacy.load(
-        #             spacy_language_code, disable=["parser", "ner", "textcat"]
-        #         )  # assuming first two letters define language model
-        #     except IndexError as e:
-        #         print(e)
-        #         print("Error loading Spacy language model. Spacy may not support {} POS tagging".format(language))
-        #         exit(-1)
-        # else:
-        #     self.nlp = False
         self.token_regex = re.compile(rf"({word_regex})|([^{word_regex}])")
         self.word_tokenizer = re.compile(word_regex)
         self.sentence_tokenizer = re.compile(sentence_regex)

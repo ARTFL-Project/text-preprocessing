@@ -50,7 +50,7 @@ WORD_CHARS = re.compile(r"\w+")
 
 PHILO_TEXT_OBJECT_TYPE: dict = {"doc": 1, "div1": 2, "div2": 3, "div3": 4, "para": 5, "sent": 6, "word": 7}
 
-SPACY_LANGUAGE_MODEL_MAP = {"french": "fr_core_news_sm", "english": "en-core-news-md"}
+SPACY_LANGUAGE_MODEL_MAP = {"french": "fr", "english": "en"}
 
 
 class Token(str):

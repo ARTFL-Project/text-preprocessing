@@ -31,15 +31,14 @@ from typing import (
 )
 from xml.sax.saxutils import unescape as unescape_xml
 
+import mmh3
 import msgpack
+import rapidjson
 import spacy
 from multiprocess import Pool, cpu_count
+from Stemmer import Stemmer
 from text_preprocessing.modernize import modernizer
 from unidecode import unidecode
-
-import mmh3
-import rapidjson
-from Stemmer import Stemmer
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P"))
 PUNCTUATION_CLASS = set([chr(i) for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P")])
@@ -379,6 +378,7 @@ class PreProcessor:
             self.workers = workers
         self.post_func = post_processing_function
         self.progress = progress
+        self.nlp = None
 
     def process_texts(
         self, texts: Iterable[str], keep_all: bool = False, progress: bool = True
@@ -387,12 +387,16 @@ class PreProcessor:
         count: int = 0
         self.progress = progress
         self.keep_all = keep_all
+        # queue = Queue()
         if self.progress is True:
             print("\nProcessing texts...", end="", flush=True)
         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            with Pool(self.workers) as pool:  # think about reimplenting using Queues...
-                texts = chunks(texts, self.workers)
-                for processed_docs in pool.imap_unordered(self.__local_spacy_process, texts):
+            self.nlp = True
+            with Pool(self.workers) as pool:
+                texts = list(texts)
+                for processed_docs in pool.imap_unordered(
+                    self.__local_process, texts, chunksize=len(texts) // self.workers
+                ):
                     if self.progress is True:
                         count += len(processed_docs)
                         print("\rProcessing texts... {} done".format(count), end="", flush=True)
@@ -408,38 +412,13 @@ class PreProcessor:
                         yield sub_doc
         print()
 
-    def __local_spacy_process(self, texts):
-        nlp = load_language_model(self.language)
-        processed_texts = []
-        for text in texts:
-            if self.is_philo_db is True:
-                text_objects, metadata = self.process_philo_text(text, nlp=nlp)
-                if self.post_func is None:
-                    processed_texts.extend(
-                        [
-                            self.format(processed_text, obj_metadata)
-                            for processed_text, obj_metadata in zip(text_objects, metadata)
-                        ]
-                    )
-                else:
-                    processed_texts.extend(
-                        [
-                            self.post_func(self.format(processed_text, obj_metadata))
-                            for processed_text, obj_metadata in zip(text_objects, metadata)
-                        ]
-                    )
-            else:
-                doc, metadata = self.process_text(text, nlp=nlp)
-                text_output = self.format(doc, metadata)
-                if self.post_func is None:
-                    processed_texts.extend(text_output)
-                else:
-                    processed_texts.extend(self.post_func(text_output))
-        return processed_texts
-
     def __local_process(self, text):
+        if self.nlp is not None:
+            nlp = load_language_model(self.language)
+        else:
+            nlp = None
         if self.is_philo_db is True:
-            text_objects, metadata = self.process_philo_text(text)
+            text_objects, metadata = self.process_philo_text(text, nlp=nlp)
             if self.post_func is None:
                 return [
                     self.format(processed_text, obj_metadata)
@@ -450,7 +429,7 @@ class PreProcessor:
                     self.post_func(self.format(processed_text, obj_metadata))
                     for processed_text, obj_metadata in zip(text_objects, metadata)
                 ]
-        doc, metadata = self.process_text(text)
+        doc, metadata = self.process_text(text, nlp=nlp)
         if self.post_func is None:
             return [self.format(doc, metadata)]
         else:

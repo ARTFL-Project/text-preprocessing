@@ -393,12 +393,10 @@ class PreProcessor:
         if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
             self.nlp = True
             with Pool(self.workers) as pool:
-                texts = list(texts)
-                for processed_docs in pool.imap_unordered(
-                    self.__local_process, texts, chunksize=len(texts) // self.workers
-                ):
+                # texts = list(texts)
+                for processed_docs in pool.imap_unordered(self.__local_process, texts):
                     if self.progress is True:
-                        count += len(processed_docs)
+                        count += 1
                         print("\rProcessing texts... {} done".format(count), end="", flush=True)
                     for processed_doc in processed_docs:
                         yield processed_doc

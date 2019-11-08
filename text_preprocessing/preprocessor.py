@@ -458,7 +458,6 @@ class PreProcessor:
             tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
         return self.__normalize_doc(tokens)
 
-    # @profile
     def process_philo_text(self, text: str, fetch_metadata: bool = True, nlp=None):
         """Process files produced by PhiloLogic parser"""
         docs: List = []
@@ -748,22 +747,7 @@ def main():
     word_num = 0
     for file in os.scandir(sys.argv[1]):
         word_num += len(open(file.path).readlines())
-    # from ..text_preprocessing import PreProcessor, Tokens
     preproc = PreProcessor(
-        # stopwords="/shared/PhiloLogic4/extras/FrenchStopwords.txt",
-        # lemmatizer="spacy",
-        # modernize=True,
-        # stemmer=True,
-        # strip_tags=True,
-        is_philo_db=True,
-        # pos_to_keep=["NOUN", "PROPN", "ADJ"],
-        # strip_punctuation=False,
-        # text_object_type="div1",
-        language="french",
-        # ascii=True,
-        min_word_length=3,
-        # return_type="sentences",
-        workers=32,
     )
     start_time = timeit.default_timer()
     _ = [f for f in preproc.process_texts((i.path for i in os.scandir(sys.argv[1])))]

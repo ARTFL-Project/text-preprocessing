@@ -32,12 +32,11 @@ from typing import (
 from xml.sax.saxutils import unescape as unescape_xml
 
 import mmh3
-import msgpack
 import rapidjson
 import spacy
 from multiprocess import Pool, cpu_count
 from Stemmer import Stemmer
-from text_preprocessing.modernize import modernizer
+from .modernize import modernizer
 from unidecode import unidecode
 
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P"))
@@ -259,35 +258,6 @@ class Tokens:
         self.tokens = deque(Token(t[0], t[1], t[2], t[3]) for t in tokens["tokens"])
 
 
-class Lemmatizer:
-    """Lemmatizer wrapper"""
-
-    def __init__(self, input_file: str):
-        self.input: str = input_file
-        self.loaded: bool = False
-        self.lemmatizer: Dict[str, str] = {}
-
-    def get(self, word: str, replacement: str) -> str:
-        """Get lemma"""
-        if self.loaded is False:
-            self.__load_input()
-        try:
-            return self.lemmatizer[word]
-        except KeyError:
-            return replacement
-
-    def __load_input(self) -> None:
-        with open(self.input, "rb") as pack_input:
-            self.lemmatizer = msgpack.load(pack_input, encoding="utf8")
-        self.loaded = True
-
-    def delete(self) -> None:
-        """Delete cached dict to avoid clogging the /tmp dir"""
-        self.loaded = False
-        self.lemmatizer = {}
-        os.system(f"rm {self.input}")
-
-
 def load_language_model(language):
     try:
         spacy_language_code = SPACY_LANGUAGE_MODEL_MAP[language]
@@ -315,8 +285,39 @@ def chunks(l, n):
 class PreProcessor:
     """ Text Preprocessing class"""
 
+    nlp = None
+    word_regex: str = r"\w+"
+    sentence_regex: str = r"[.!?]+"
+    language: str = "french"
+    stemmer: bool = False
+    lemmatizer: Optional[str] = None
+    modernize: bool = False
+    ngrams: Optional[int] = None
+    ngram_gap: int = 0
+    ngram_word_order: bool = True
+    stopwords: Optional[str] = None
+    strip_punctuation: bool = True
+    strip_numbers: bool = True
+    strip_tags: bool = False
+    lowercase: bool = True
+    min_word_length: int = 2
+    ascii: bool = False
+    convert_entities: bool = False
+    with_pos: bool = False
+    pos_to_keep: List[str] = []
+    is_philo_db: bool = False
+    text_object_type: str = "doc"
+    return_type: str = "words"
+    hash_tokens: bool = False
+    workers: Optional[int] = None
+    post_func: Optional[Callable] = None
+    token_regex = None
+    word_tokenizer = re.compile(word_regex)
+    sentence_tokenizer = re.compile(sentence_regex)
+
+    @classmethod
     def __init__(
-        self,
+        cls,
         word_regex: str = r"\w+",
         sentence_regex: str = r"[.!?]+",
         language: str = "french",
@@ -344,121 +345,112 @@ class PreProcessor:
         post_processing_function: Callable = None,
         progress: bool = True,
     ):
-        self.language = language
+        cls.language = language
         if modernize is True:
-            self.modernize: modernizer = modernizer(language)
+            cls.modernize: modernizer = modernizer(language)
         else:
-            self.modernize = False
-        self.stemmer = stemmer
-        self.ngrams = ngrams or 0
-        if self.ngrams:
-            self.ngram_window = self.ngrams + ngram_gap
-            self.ngram_word_order = ngram_word_order
-        self.stopwords = self.__get_stopwords(stopwords)
-        self.lemmatizer = self.__get_lemmatizer(lemmatizer)
-        self.strip_punctuation = strip_punctuation
-        self.strip_numbers = strip_numbers
-        self.strip_tags = strip_tags
-        self.lowercase = lowercase
-        self.min_word_length = min_word_length
-        self.ascii = ascii
-        self.convert_entities = convert_entities
-        self.pos_to_keep = set(pos_to_keep)
-        self.with_pos = with_pos
-        self.is_philo_db = is_philo_db
-        self.text_object_type = text_object_type
-        self.return_type = return_type
-        self.hash_tokens = hash_tokens
-        self.token_regex = re.compile(rf"({word_regex})|([^{word_regex}])")
-        self.word_tokenizer = re.compile(word_regex)
-        self.sentence_tokenizer = re.compile(sentence_regex)
+            cls.modernize = False
+        if stemmer is True:
+            cls.stemmer = Stemmer(cls.language)
+            cls.stemmer.maxCacheSize = 50000
+        else:
+            cls.stemmer = stemmer
+        cls.ngrams = ngrams or 0
+        if cls.ngrams:
+            cls.ngram_window = cls.ngrams + ngram_gap
+            cls.ngram_word_order = ngram_word_order
+        cls.stopwords = cls.__get_stopwords(stopwords)
+        cls.lemmatizer = cls.__get_lemmatizer(lemmatizer)
+        cls.strip_punctuation = strip_punctuation
+        cls.strip_numbers = strip_numbers
+        cls.strip_tags = strip_tags
+        cls.lowercase = lowercase
+        cls.min_word_length = min_word_length
+        cls.ascii = ascii
+        cls.convert_entities = convert_entities
+        cls.pos_to_keep = set(pos_to_keep)
+        cls.with_pos = with_pos
+        cls.is_philo_db = is_philo_db
+        cls.text_object_type = text_object_type
+        cls.return_type = return_type
+        cls.hash_tokens = hash_tokens
+        cls.token_regex = re.compile(rf"({word_regex})|([^{word_regex}])")
+        cls.word_tokenizer = re.compile(word_regex)
+        cls.sentence_tokenizer = re.compile(sentence_regex)
         if workers is None:
-            self.workers = cpu_count()
+            cls.workers = cpu_count() - 1
         else:
-            self.workers = workers
-        self.post_func = post_processing_function
-        self.progress = progress
-        self.nlp = None
+            cls.workers = workers
+        cls.post_func = post_processing_function
+        if cls.with_pos is True or cls.pos_to_keep or cls.lemmatizer == "spacy":
+            cls.nlp = load_language_model(cls.language)
 
+    @classmethod
     def process_texts(
-        self, texts: Iterable[str], keep_all: bool = False, progress: bool = True
+        cls, texts: Iterable[str], keep_all: bool = False, progress: bool = True
     ) -> Iterable[Union[Tokens, List[Tokens]]]:
         """Process all documents. Returns an iterator of documents"""
         count: int = 0
-        self.progress = progress
-        self.keep_all = keep_all
-        # queue = Queue()
-        if self.progress is True:
+        cls.keep_all = keep_all
+        if progress is True:
             print("\nProcessing texts...", end="", flush=True)
-        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            self.nlp = True
-            with Pool(self.workers) as pool:
-                # texts = list(texts)
-                for processed_docs in pool.imap_unordered(self.__local_process, texts):
-                    if self.progress is True:
-                        count += 1
-                        print("\rProcessing texts... {} done".format(count), end="", flush=True)
-                    for processed_doc in processed_docs:
-                        yield processed_doc
-        else:
-            with Pool(self.workers) as pool:
-                for processed_doc in pool.imap_unordered(self.__local_process, texts):
-                    if self.progress is True:
-                        count += 1
-                        print("\rProcessing texts... {} done".format(count), end="", flush=True)
-                    for sub_doc in processed_doc:
-                        yield sub_doc
+        with Pool(cls.workers) as pool:
+            for processed_docs in pool.imap_unordered(cls.__local_process, texts):
+                if progress is True:
+                    count += 1
+                    print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                for processed_doc in processed_docs:
+                    yield processed_doc
         print()
 
-    def __local_process(self, text):
-        if self.nlp is not None:
-            nlp = load_language_model(self.language)
-        else:
-            nlp = None
-        if self.is_philo_db is True:
-            text_objects, metadata = self.process_philo_text(text, nlp=nlp)
-            if self.post_func is None:
+    @classmethod
+    def __local_process(cls, text):
+        if cls.is_philo_db is True:
+            text_objects, metadata = cls.process_philo_text(text)
+            if cls.post_func is None:
                 return [
-                    self.format(processed_text, obj_metadata)
+                    cls.format(processed_text, obj_metadata)
                     for processed_text, obj_metadata in zip(text_objects, metadata)
                 ]
             else:
                 return [
-                    self.post_func(self.format(processed_text, obj_metadata))
+                    cls.post_func(cls.format(processed_text, obj_metadata))
                     for processed_text, obj_metadata in zip(text_objects, metadata)
                 ]
-        doc, metadata = self.process_text(text, nlp=nlp)
-        if self.post_func is None:
-            return [self.format(doc, metadata)]
+        doc, metadata = cls.process_text(text)
+        if cls.post_func is None:
+            return [cls.format(doc, metadata)]
         else:
-            return [self.post_func(self.format(doc, metadata))]
+            return [cls.post_func(cls.format(doc, metadata))]
 
-    def process_text(self, text: str, nlp=None):
+    @classmethod
+    def process_text(cls, text: str):
         """Process one document. Return the transformed document"""
         with open(text) as input_text:
             doc: str = input_text.read()
-        tokens = self.tokenize_text(doc)
+        tokens = cls.tokenize_text(doc)
         metadata: Dict[str, Any] = {"filename": text}
-        if nlp is not None:
-            return self.pos_tag_text(tokens, nlp), metadata
-        elif self.lemmatizer and self.lemmatizer != "spacy":
-            tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, ext=word.ext) for word in tokens]
+        if cls.nlp is not None:
+            return cls.pos_tag_text(tokens), metadata
+        elif cls.lemmatizer and cls.lemmatizer != "spacy":
+            tokens = [Token(cls.lemmatizer.get(word, word), word.surface_form, ext=word.ext) for word in tokens]
         else:
             tokens = list(tokens)  # We need to convert generator to list for pickling in multiprocessing
         return tokens, metadata
 
-    def process_string(self, text, keep_all=True):
+    @classmethod
+    def process_string(cls, text, keep_all=True):
         """Take a string and return a list of preprocessed tokens"""
-        tokens = self.tokenize_text(text)
-        self.keep_all = keep_all
-        if self.with_pos is True or self.pos_to_keep or self.lemmatizer == "spacy":
-            nlp = load_language_model(self.language)
-            tokens = self.pos_tag_text(tokens, nlp)
-        elif self.lemmatizer and self.lemmatizer != "spacy":
-            tokens = [Token(self.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
-        return self.__normalize_doc(tokens)
+        tokens = cls.tokenize_text(text)
+        cls.keep_all = keep_all
+        if cls.with_pos is True or cls.pos_to_keep or cls.lemmatizer == "spacy":
+            tokens = cls.pos_tag_text(tokens)
+        elif cls.lemmatizer and cls.lemmatizer != "spacy":
+            tokens = [Token(cls.lemmatizer.get(word, word), word.surface_form, word.ext) for word in tokens]
+        return cls.__normalize_doc(tokens)
 
-    def process_philo_text(self, text: str, fetch_metadata: bool = True, nlp=None):
+    @classmethod
+    def process_philo_text(cls, text: str, fetch_metadata: bool = True):
         """Process files produced by PhiloLogic parser"""
         docs: List = []
         current_object_id: str = ""
@@ -476,50 +468,48 @@ class PreProcessor:
         with open(text) as philo_db_text:
             for line in philo_db_text:
                 word_obj: Dict[str, Any] = rapidjson.loads(line.strip())
-                object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[self.text_object_type]])
+                object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[cls.text_object_type]])
                 if current_object_id == "":
                     current_object_id = object_id
                 if object_id != current_object_id:
                     if current_text_object:
                         if fetch_metadata is True:
                             obj_metadata, metadata_cache = recursive_search(
-                                cursor, current_object_id, self.text_object_type, metadata_cache, text_path, text
+                                cursor, current_object_id, cls.text_object_type, metadata_cache, text_path, text
                             )
                             metadata.append(obj_metadata)
                         else:
                             metadata.append(os.path.basename(text))
-                        if nlp is not None:
-                            current_text_object = self.pos_tag_text(current_text_object, nlp)
+                        if cls.nlp is not None:
+                            current_text_object = cls.pos_tag_text(current_text_object)
                             docs.append(current_text_object)
                         else:
-                            if self.lemmatizer:
+                            if cls.lemmatizer:
                                 current_text_object = [
-                                    Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext)
+                                    Token(cls.lemmatizer.get(word, word), word.surface_form, "", word.ext)
                                     for word in current_text_object
                                 ]
                             docs.append(current_text_object)
                         current_text_object = []
                     current_object_id = object_id
-                if self.modernize:
-                    word_obj["token"] = self.modernize(word_obj["token"])
-                    current_text_object.append(
-                        Token(self.modernize(word_obj["token"]), word_obj["token"], "", word_obj)
-                    )
+                if cls.modernize:
+                    word_obj["token"] = cls.modernize(word_obj["token"])
+                    current_text_object.append(Token(cls.modernize(word_obj["token"]), word_obj["token"], "", word_obj))
                 else:
                     current_text_object.append(Token(word_obj["token"], word_obj["token"], "", word_obj))
         if current_text_object:
             if fetch_metadata is True:
                 obj_metadata, _ = recursive_search(
-                    cursor, current_object_id, self.text_object_type, metadata_cache, text_path, text
+                    cursor, current_object_id, cls.text_object_type, metadata_cache, text_path, text
                 )
                 metadata.append(obj_metadata)
-            if nlp is not None:
-                current_text_object = self.pos_tag_text(current_text_object, nlp)
+            if cls.nlp is not None:
+                current_text_object = cls.pos_tag_text(current_text_object)
                 docs.append(current_text_object)
             else:
-                if self.lemmatizer:
+                if cls.lemmatizer:
                     current_text_object = [
-                        Token(self.lemmatizer.get(word, word), word.surface_form, "", word.ext)
+                        Token(cls.lemmatizer.get(word, word), word.surface_form, "", word.ext)
                         for word in current_text_object
                     ]
                 docs.append(current_text_object)
@@ -527,7 +517,8 @@ class PreProcessor:
             metadata = [{"filename": os.path.basename(text)}]  # Return empty shell matching the number of docs returned
         return docs, metadata
 
-    def __get_stopwords(self, file_path: Optional[str]) -> Set[str]:
+    @classmethod
+    def __get_stopwords(cls, file_path: Optional[str]) -> Set[str]:
         if file_path is None:
             return set()
         elif os.path.isfile(file_path) is False:
@@ -539,32 +530,30 @@ class PreProcessor:
                 stopwords.add(line.strip())
         return stopwords
 
-    def __get_lemmatizer(self, file_path: Optional[str]) -> Union[str, dict, Lemmatizer]:
+    @classmethod
+    def __get_lemmatizer(cls, file_path: Optional[str]) -> Union[str, dict]:
         if file_path == "spacy":
             return "spacy"
         elif file_path is None or os.path.isfile(file_path) is False:
             return {}
-        else:
-            lemmas = {}
+        lemmas: dict = {}
         with open(file_path) as input_file:
             for line in input_file:
                 word, lemma = line.strip().split("\t")
                 lemmas[word] = lemma
-        output_file = f"/tmp/{''.join([random.choice(string.ascii_lowercase) for _ in range(20)])}.pack"
-        with open(output_file, "wb") as output:
-            output.write(msgpack.dumps(lemmas))
-        return Lemmatizer(output_file)
+        return lemmas
 
-    def __generate_ngrams(self, tokens: Iterable[Token]) -> List[Token]:
+    @classmethod
+    def __generate_ngrams(cls, tokens: Iterable[Token]) -> List[Token]:
         ngrams: List[Token] = []
         ngram: Deque[Token] = deque()
         ngram_text: str
         for token in tokens:
             ngram.append(token)
-            if len(ngram) == self.ngram_window:
-                for local_ngram in combinations(ngram, self.ngrams):
+            if len(ngram) == cls.ngram_window:
+                for local_ngram in combinations(ngram, cls.ngrams):
                     ext: Dict[str, Any] = local_ngram[0].ext
-                    if self.ngram_word_order is True:
+                    if cls.ngram_word_order is True:
                         ngram_text = "_".join(t.text for t in local_ngram)
                         ext["end_byte"] = local_ngram[-1].ext["end_byte"]
                     else:
@@ -576,102 +565,100 @@ class PreProcessor:
                 ngram.popleft()
         return ngrams
 
-    def normalize(self, orig_token: Token, stemmer: Optional[Stemmer]) -> str:  # This function can be used standalone
+    @classmethod
+    def normalize(cls, orig_token: Token) -> str:  # This function can be used standalone
         """Normalize a single string token"""
         token = orig_token.text
         token = token.strip()
-        if self.convert_entities is True:
+        if cls.convert_entities is True:
             token = convert_entities(token)
-        if self.lowercase:
+        if cls.lowercase:
             token = token.lower()
-        if token in self.stopwords or orig_token.surface_form in self.stopwords:
+        if token in cls.stopwords or orig_token.surface_form in cls.stopwords:
             return ""
-        if self.strip_punctuation:
+        if cls.strip_punctuation:
             token = token.translate(PUNCTUATION_MAP)
         elif token in PUNCTUATION_CLASS:
             return token
-        if self.strip_numbers and NUMBERS.search(token):
+        if cls.strip_numbers and NUMBERS.search(token):
             return ""
-        if stemmer is not None:
-            token = stemmer.stemWord(token)
-        if len(token) < self.min_word_length:
+        if cls.stemmer is not False:
+            token = cls.stemmer.stemWord(token)
+        if len(token) < cls.min_word_length:
             return ""
-        if self.ascii:
+        if cls.ascii:
             token = unidecode(token)
-        if self.hash_tokens:
+        if cls.hash_tokens:
             token = str(mmh3.hash(token))
         return token
 
-    def __normalize_doc(self, doc: List[Token]) -> List[Token]:
+    @classmethod
+    def __normalize_doc(cls, doc: List[Token]) -> List[Token]:
         """Normalize single documents"""
         normalized_doc: List[Token] = []
-        stemmer: Optional[Stemmer]
-        if self.stemmer is True:
-            stemmer = Stemmer(self.language)
-            stemmer.maxCacheSize = 50000
-        else:
-            stemmer = None
         for inner_token in doc:
-            normalized_token = self.normalize(inner_token, stemmer)
-            if normalized_token or self.keep_all is True:
+            normalized_token = cls.normalize(inner_token)
+            if normalized_token or cls.keep_all is True:
                 normalized_doc.append(
                     Token(normalized_token, inner_token.surface_form, inner_token.pos_, inner_token.ext)
                 )
         return normalized_doc
 
-    def format(self, doc: List[Token], metadata: Dict[str, Any]) -> Union[Tokens, List[Tokens]]:
+    @classmethod
+    def format(cls, doc: List[Token], metadata: Dict[str, Any]) -> Union[Tokens, List[Tokens]]:
         """Format output"""
-        doc = self.__normalize_doc(doc)
-        if self.return_type == "words":
-            if self.ngrams:
-                doc = self.__generate_ngrams(doc)
+        doc = cls.__normalize_doc(doc)
+        if cls.return_type == "words":
+            if cls.ngrams:
+                doc = cls.__generate_ngrams(doc)
             return Tokens(doc, metadata)
-        elif self.return_type == "sentences":
+        elif cls.return_type == "sentences":
             sentence: List[Token] = []
             list_of_sentences: List[Tokens] = []
             for word in doc:
-                if self.sentence_tokenizer.search(word.text):
-                    if self.ngrams:
-                        sentence = self.__generate_ngrams(sentence)
+                if cls.sentence_tokenizer.search(word.text):
+                    if cls.ngrams:
+                        sentence = cls.__generate_ngrams(sentence)
                     list_of_sentences.append(Tokens(sentence, metadata))
                     sentence = []
                     continue
                 sentence.append(word)
             if sentence:
-                if self.ngrams:
-                    sentence = self.__generate_ngrams(sentence)
+                if cls.ngrams:
+                    sentence = cls.__generate_ngrams(sentence)
                 list_of_sentences.append(Tokens(sentence, metadata))
             return list_of_sentences
         else:
             print("Error: only return_types possible are 'sentences' and 'words' (which can be ngrams)")
             exit()
 
-    def pos_tag_text(self, text: Iterable[Token], nlp) -> List[Token]:
+    @classmethod
+    def pos_tag_text(cls, text: Iterable[Token]) -> List[Token]:
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
         text = list(text)
-        tagged_doc: Iterable = nlp.tagger(spacy.tokens.Doc(nlp.vocab, [w.text for w in text]))
-        if self.pos_to_keep:
-            if self.lemmatizer and self.lemmatizer != "spacy":
+        tagged_doc: Iterable = cls.nlp.tagger(spacy.tokens.Doc(cls.nlp.vocab, [w.text for w in text]))
+        if cls.pos_to_keep:
+            if cls.lemmatizer and cls.lemmatizer != "spacy":
                 processed_doc: List[Token] = []
                 for token, old_token in zip(tagged_doc, text):
-                    if token.pos_ in self.pos_to_keep:
+                    if token.pos_ in cls.pos_to_keep:
                         processed_doc.append(
                             Token(
-                                self.lemmatizer.get(token.text.lower(), token.text.lower()),
+                                cls.lemmatizer.get(token.text.lower(), token.text.lower()),
                                 old_token.surface_form,
                                 token.pos_,
                                 old_token.ext,
                             )
                         )
-                    elif self.keep_all is True:
+                    elif cls.keep_all is True:
                         processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
             else:
                 processed_doc = []
                 for token, old_token in zip(tagged_doc, text):
-                    if token.pos_ in self.pos_to_keep:
+                    if token.pos_ in cls.pos_to_keep:
                         processed_doc.append(Token(token.lemma_, old_token.surface_form, token.pos_, old_token.ext))
-                    elif self.keep_all is True:
+                    elif cls.keep_all is True:
                         processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
         else:
             processed_doc = [
@@ -679,7 +666,8 @@ class PreProcessor:
             ]
         return processed_doc
 
-    def remove_tags(self, text: str) -> str:
+    @classmethod
+    def remove_tags(cls, text: str) -> str:
         """Strip XML tags"""
         end_header_index: int = text.rfind("</teiHeader>")
         if end_header_index != -1:
@@ -688,13 +676,14 @@ class PreProcessor:
         text = TAGS.sub("", text)
         return text
 
-    def tokenize_text(self, doc: str) -> Iterable[Token]:
+    @classmethod
+    def tokenize_text(cls, doc: str) -> Iterable[Token]:
         """Tokenize text"""
-        if self.strip_tags:
-            doc = self.remove_tags(doc)
-        for match in self.token_regex.finditer(doc):
-            if self.modernize:
-                yield Token(self.modernize(match[0]), match[0])
+        if cls.strip_tags:
+            doc = cls.remove_tags(doc)
+        for match in cls.token_regex.finditer(doc):
+            if cls.modernize:
+                yield Token(cls.modernize(match[0]), match[0])
             else:
                 yield Token(match[0], match[0])
 
@@ -747,8 +736,7 @@ def main():
     word_num = 0
     for file in os.scandir(sys.argv[1]):
         word_num += len(open(file.path).readlines())
-    preproc = PreProcessor(
-    )
+    preproc = PreProcessor()
     start_time = timeit.default_timer()
     _ = [f for f in preproc.process_texts((i.path for i in os.scandir(sys.argv[1])))]
     elapsed = timeit.default_timer() - start_time

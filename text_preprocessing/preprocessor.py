@@ -714,7 +714,8 @@ def recursive_search(
                         if field == "filename":
                             obj_metadata[field] = os.path.join(text_path, result[field])
                         else:
-                            obj_metadata[field] = result[field]
+                            if field not in obj_metadata or obj_metadata[field]:
+                                obj_metadata[field] = result[field]
                             if obj_metadata[field] is None:
                                 obj_metadata[field] = ""
                         metadata_cache[current_id][field] = obj_metadata[field]

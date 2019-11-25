@@ -57,7 +57,17 @@ for text_object in preproc.process_files(["file1", "file2"]):
     - surface_form: the original form of the token before processing. If `keep_all=True` was passed to process_files, you will also find tokens that have been filtered out.
     - pos_ = POS speech info if available
     - ext = contains additional metadata from PhiloLogic such as start_byte and end_byte. 
+    
     To print the contents of each token, you can do: 
     ```python 
     print(repr(token))
     ```
+- You can iterate over every token in returned text objects like so:
+```python
+for text_object in preproc.process_files(["file1", "file2"]):
+        for token in text_object:
+                print(token) # shorthand for print(token.text)
+                print(token.pos_) # print part of speech 
+                print(token.ext["start_byte"], token.ext["end_byte"]) # print start and end byte of each token (if available)
+ ``` 
+ 

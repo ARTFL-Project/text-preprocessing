@@ -42,9 +42,21 @@ preproc = Preprocessing(
 
 ```
 
-- To process a list of files, you just pass a list of files to process_files(). It will return a Token object (which is very much like a list of strings with some added features):
+- To process a list of files, you just pass a list of files to process_files(). It will return a Tokens object (which is very much like a list of strings with some added features) which contains a list of Token objects:
 ```python
 for text_object in preproc.process_files(["file1", "file2"]):
         resulting_string = " ".join(text_object)
+        surface_forms = " ".join(token.surface_form for token in text_object)
         metadata = text_object.metadata
  ```
+ 
+ - By default, process_files does not keep words that have been filtered out. You can optionally keep a trace of all the words in. They will be available as a "token.surface_form" which contains the original form of every token.
+ 
+ - Token objects have four attributes:
+    - text: the final form of the token after processing
+    - surface_form: the original form of the token before processing. If `keep_all=True` was passed to process_files, you will also find tokens that have been filtered out.
+    - pos_ = POS speech info if available
+    - ext = contains additional metadata from PhiloLogic such as start_byte and end_byte. To print the contents of each token, you can do:
+    ```python
+    print(repr(token))
+    ```

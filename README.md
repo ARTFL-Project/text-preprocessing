@@ -50,7 +50,7 @@ for text_object in preproc.process_files(["file1", "file2"]):
         metadata = text_object.metadata
  ```
  
- - By default, process_files does not keep words that have been filtered out. You can optionally keep a trace of all the words in. They will be available as a "token.surface_form" which contains the original form of every token.
+ - process_files takes an optional keep_all=True keyword that will store all filtered words in the surface_form attribute of Token objects (e.g. "token.surface_form")
  
  - Token objects have four attributes:
     - text: the final form of the token after processing

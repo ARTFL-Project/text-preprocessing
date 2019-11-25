@@ -41,3 +41,10 @@ preproc = Preprocessing(
         )
 
 ```
+
+- To process a list of files, you just pass a list of files to process_files(). It will return a Token object (which is very much like a list of strings with some added features):
+```python
+for text_object in preproc.process_files(["file1", "file2"]):
+        resulting_string = " ".join(text_object)
+        metadata = text_object.metadata
+ ```

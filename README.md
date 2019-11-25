@@ -45,9 +45,9 @@ preproc = Preprocessing(
 - To process a list of files, you just pass a list of files to process_files(). It will return a Tokens object (which is very much like a list of strings with some added features) which contains a list of Token objects:
 ```python
 for text_object in preproc.process_files(["file1", "file2"]):
-        resulting_string = " ".join(text_object)
-        surface_forms = " ".join(token.surface_form for token in text_object)
-        metadata = text_object.metadata
+        resulting_string = " ".join(text_object) # create a string containing every token separated by a space
+        surface_forms = " ".join(token.surface_form for token in text_object) # create a string containing every surface form of a token separated by a space
+        print(text_object.metadata) # print the text object metadata (a dictionary)
  ```
  
  - process_files takes an optional keep_all=True keyword that will store all filtered words in the surface_form attribute of Token objects (e.g. "token.surface_form")

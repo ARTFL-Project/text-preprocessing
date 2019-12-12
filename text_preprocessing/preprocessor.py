@@ -396,10 +396,11 @@ class PreProcessor:
             print("\nProcessing texts...", end="", flush=True)
         with Pool(cls.workers) as pool:
             for processed_docs in pool.imap_unordered(cls.__local_process, texts):
-                if progress is True:
-                    count += 1
-                    print("\rProcessing texts... {} done".format(count), end="", flush=True)
+
                 for processed_doc in processed_docs:
+                    if progress is True:
+                        count += 1
+                        print("\rProcessing texts... {} done".format(count), end="", flush=True)
                     yield processed_doc
         print()
 

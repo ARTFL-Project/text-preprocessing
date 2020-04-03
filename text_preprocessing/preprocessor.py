@@ -314,7 +314,6 @@ class PreProcessor:
     token_regex = None
     word_tokenizer = re.compile(word_regex)
     sentence_tokenizer = re.compile(sentence_regex)
-    metadata_filter: Optional[Dict[str]Any] = None
 
 
     @classmethod
@@ -346,7 +345,6 @@ class PreProcessor:
         workers: Optional[int] = None,
         post_processing_function: Callable = None,
         progress: bool = True,
-        metadata_filter: Dict[str]Any
     ):
         cls.language = language
         if modernize is True:

@@ -314,6 +314,8 @@ class PreProcessor:
     token_regex = None
     word_tokenizer = re.compile(word_regex)
     sentence_tokenizer = re.compile(sentence_regex)
+    metadata_filter: Optional[Dict[str]Any] = None
+
 
     @classmethod
     def __init__(
@@ -344,6 +346,7 @@ class PreProcessor:
         workers: Optional[int] = None,
         post_processing_function: Callable = None,
         progress: bool = True,
+        metadata_filter: Dict[str]Any
     ):
         cls.language = language
         if modernize is True:
@@ -384,23 +387,31 @@ class PreProcessor:
         cls.post_func = post_processing_function
         if cls.with_pos is True or cls.pos_to_keep or cls.lemmatizer == "spacy":
             cls.nlp = load_language_model(cls.language)
+        cls.metadata_filter = metadata_filter
 
     @classmethod
     def process_texts(
-        cls, texts: Iterable[str], keep_all: bool = False, progress: bool = True
+        cls, texts: Iterable[str], keep_all: bool = False, progress: bool = True, progress_prefix="Processing texts..."
     ) -> Iterable[Union[Tokens, List[Tokens]]]:
         """Process all documents. Returns an iterator of documents"""
         count: int = 0
+        doc_count: int = 0
         cls.keep_all = keep_all
         if progress is True:
-            print("\nProcessing texts...", end="", flush=True)
+            print(f"{progress_prefix}", end="", flush=True)
         with Pool(cls.workers) as pool:
             for processed_docs in pool.imap_unordered(cls.__local_process, texts):
-
+                doc_count += 1
                 for processed_doc in processed_docs:
+                    if cls.metadata_filter is not None:
+                        for metadata_field, metadata_value in cls.metadata_filter.items():
+                            if processed_doc.metadata[metadata_field] != metadata_value:
+                                continue
                     if progress is True:
                         count += 1
-                        print("\rProcessing texts... {} done".format(count), end="", flush=True)
+                        print(
+                            f"\r{progress_prefix} {doc_count} done, {count} text objects extracted", end="", flush=True
+                        )
                     yield processed_doc
         print()
 

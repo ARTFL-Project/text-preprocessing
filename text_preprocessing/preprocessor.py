@@ -345,6 +345,7 @@ class PreProcessor:
         workers: Optional[int] = None,
         post_processing_function: Callable = None,
         progress: bool = True,
+        metadata_filter: Dict[str]Any
     ):
         cls.language = language
         if modernize is True:

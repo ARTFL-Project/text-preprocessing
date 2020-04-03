@@ -314,7 +314,7 @@ class PreProcessor:
     token_regex = None
     word_tokenizer = re.compile(word_regex)
     sentence_tokenizer = re.compile(sentence_regex)
-
+    metadata_filter: Optional[Dict[str]Any]] = None
 
     @classmethod
     def __init__(

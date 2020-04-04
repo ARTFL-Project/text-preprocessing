@@ -46,7 +46,15 @@ NUMBERS = re.compile(r"\d")
 TAGS = re.compile(r"<[^>]+>")
 WORD_CHARS = re.compile(r"\w+")
 
-PHILO_TEXT_OBJECT_TYPE: dict = {"doc": 1, "div1": 2, "div2": 3, "div3": 4, "para": 5, "sent": 6, "word": 7}
+PHILO_TEXT_OBJECT_TYPE: dict = {
+    "doc": 1,
+    "div1": 2,
+    "div2": 3,
+    "div3": 4,
+    "para": 5,
+    "sent": 6,
+    "word": 7,
+}
 
 SPACY_LANGUAGE_MODEL_MAP = {"french": "fr", "english": "en"}
 
@@ -73,7 +81,9 @@ class Token(str):
     def __new__(cls, value, surface_form="", pos_="", ext=""):
         return str.__new__(cls, value)
 
-    def __init__(self, text: str, surface_form: str = "", pos_: str = "", ext: Dict[str, Any] = None):
+    def __init__(
+        self, text: str, surface_form: str = "", pos_: str = "", ext: Dict[str, Any] = None,
+    ):
         self.text = text or ""
         self.surface_form = surface_form or text
         self.ext = ext or {}
@@ -314,7 +324,6 @@ class PreProcessor:
     token_regex = None
     word_tokenizer = re.compile(word_regex)
     sentence_tokenizer = re.compile(sentence_regex)
-    metadata_filter = None #TODO: define type
 
     @classmethod
     def __init__(
@@ -345,7 +354,6 @@ class PreProcessor:
         workers: Optional[int] = None,
         post_processing_function: Callable = None,
         progress: bool = True,
-        metadata_filter: Dict[str, Any]
     ):
         cls.language = language
         if modernize is True:
@@ -386,11 +394,10 @@ class PreProcessor:
         cls.post_func = post_processing_function
         if cls.with_pos is True or cls.pos_to_keep or cls.lemmatizer == "spacy":
             cls.nlp = load_language_model(cls.language)
-        cls.metadata_filter = metadata_filter
 
     @classmethod
     def process_texts(
-        cls, texts: Iterable[str], keep_all: bool = False, progress: bool = True, progress_prefix="Processing texts..."
+        cls, texts: Iterable[str], keep_all: bool = False, progress: bool = True, progress_prefix="Processing texts...",
     ) -> Iterable[Union[Tokens, List[Tokens]]]:
         """Process all documents. Returns an iterator of documents"""
         count: int = 0
@@ -398,18 +405,15 @@ class PreProcessor:
         cls.keep_all = keep_all
         if progress is True:
             print(f"{progress_prefix}", end="", flush=True)
+
         with Pool(cls.workers) as pool:
             for processed_docs in pool.imap_unordered(cls.__local_process, texts):
                 doc_count += 1
                 for processed_doc in processed_docs:
-                    if cls.metadata_filter is not None:
-                        for metadata_field, metadata_value in cls.metadata_filter.items():
-                            if processed_doc.metadata[metadata_field] != metadata_value:
-                                continue
                     if progress is True:
                         count += 1
                         print(
-                            f"\r{progress_prefix} {doc_count} done, {count} text objects extracted", end="", flush=True
+                            f"\r{progress_prefix} {doc_count} done, {count} text objects extracted", end="", flush=True,
                         )
                     yield processed_doc
         print()
@@ -486,7 +490,7 @@ class PreProcessor:
                     if current_text_object:
                         if fetch_metadata is True:
                             obj_metadata, metadata_cache = recursive_search(
-                                cursor, current_object_id, cls.text_object_type, metadata_cache, text_path, text
+                                cursor, current_object_id, cls.text_object_type, metadata_cache, text_path, text,
                             )
                             metadata.append(obj_metadata)
                         else:
@@ -497,7 +501,7 @@ class PreProcessor:
                         else:
                             if cls.lemmatizer:
                                 current_text_object = [
-                                    Token(cls.lemmatizer.get(word, word), word.surface_form, "", word.ext)
+                                    Token(cls.lemmatizer.get(word, word), word.surface_form, "", word.ext,)
                                     for word in current_text_object
                                 ]
                             docs.append(current_text_object)
@@ -505,13 +509,15 @@ class PreProcessor:
                     current_object_id = object_id
                 if cls.modernize:
                     word_obj["token"] = cls.modernize(word_obj["token"])
-                    current_text_object.append(Token(cls.modernize(word_obj["token"]), word_obj["token"], "", word_obj))
+                    current_text_object.append(
+                        Token(cls.modernize(word_obj["token"]), word_obj["token"], "", word_obj,)
+                    )
                 else:
                     current_text_object.append(Token(word_obj["token"], word_obj["token"], "", word_obj))
         if current_text_object:
             if fetch_metadata is True:
                 obj_metadata, _ = recursive_search(
-                    cursor, current_object_id, cls.text_object_type, metadata_cache, text_path, text
+                    cursor, current_object_id, cls.text_object_type, metadata_cache, text_path, text,
                 )
                 metadata.append(obj_metadata)
             if cls.nlp is not None:
@@ -520,7 +526,7 @@ class PreProcessor:
             else:
                 if cls.lemmatizer:
                     current_text_object = [
-                        Token(cls.lemmatizer.get(word, word), word.surface_form, "", word.ext)
+                        Token(cls.lemmatizer.get(word, word), word.surface_form, "", word.ext,)
                         for word in current_text_object
                     ]
                 docs.append(current_text_object)
@@ -611,7 +617,7 @@ class PreProcessor:
             normalized_token = cls.normalize(inner_token)
             if normalized_token or cls.keep_all is True:
                 normalized_doc.append(
-                    Token(normalized_token, inner_token.surface_form, inner_token.pos_, inner_token.ext)
+                    Token(normalized_token, inner_token.surface_form, inner_token.pos_, inner_token.ext,)
                 )
         return normalized_doc
 
@@ -668,7 +674,7 @@ class PreProcessor:
                 processed_doc = []
                 for token, old_token in zip(tagged_doc, text):
                     if token.pos_ in cls.pos_to_keep:
-                        processed_doc.append(Token(token.lemma_, old_token.surface_form, token.pos_, old_token.ext))
+                        processed_doc.append(Token(token.lemma_, old_token.surface_form, token.pos_, old_token.ext,))
                     elif cls.keep_all is True:
                         processed_doc.append(Token("", old_token.surface_form, token.pos_, old_token.ext))
         else:

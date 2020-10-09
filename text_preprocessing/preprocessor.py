@@ -46,7 +46,7 @@ NUMBERS = re.compile(r"\d")
 TAGS = re.compile(r"<[^>]+>")
 WORD_CHARS = re.compile(r"\w+")
 
-PHILO_TEXT_OBJECT_TYPE: dict = {
+PHILO_TEXT_OBJECT_TYPE: Dict[str, int] = {
     "doc": 1,
     "div1": 2,
     "div2": 3,
@@ -55,6 +55,8 @@ PHILO_TEXT_OBJECT_TYPE: dict = {
     "sent": 6,
     "word": 7,
 }
+
+PHILO_OBJECT_LEVEL: Dict[int, str] = {1: "doc", 2: "div1", 3: "div2", 4: "div3", 5: "para", 6: "sent", 7: "word"}
 
 SPACY_LANGUAGE_MODEL_MAP = {"french": "fr", "english": "en"}
 
@@ -736,6 +738,12 @@ def recursive_search(
                             if obj_metadata[field] is None:
                                 obj_metadata[field] = ""
                         metadata_cache[current_id][field] = obj_metadata[field]
+            current_philo_type = PHILO_OBJECT_LEVEL[object_level]
+            philo_object_id = f"philo_{current_philo_type}_id"
+            if philo_object_id not in obj_metadata or not obj_metadata[philo_object_id]:
+                philo_object_id_value = " ".join(object_id[:object_level])
+                obj_metadata[philo_object_id] = philo_object_id_value
+                metadata_cache[current_id][philo_object_id] = philo_object_id_value
         object_id.pop()
         object_level -= 1
     return obj_metadata, metadata_cache

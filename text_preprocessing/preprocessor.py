@@ -702,7 +702,7 @@ class PreProcessor:
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
         text = list(text)
-        tagged_doc: Iterable = cls.nlp.tagger(spacy.tokens.Doc(cls.nlp.vocab, [w.text for w in text]))
+        tagged_doc: Iterable = cls.nlp.get_pipe("tagger")(spacy.tokens.Doc(cls.nlp.vocab, [w.text for w in text]))
         if cls.pos_to_keep:
             if cls.lemmatizer and cls.lemmatizer != "spacy":
                 processed_doc: List[Token] = []

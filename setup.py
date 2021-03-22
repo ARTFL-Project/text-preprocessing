@@ -10,5 +10,5 @@ setup(
     author="The ARTFL Project",
     author_email="clovisgladstone@gmail.com",
     packages=["text_preprocessing", "text_preprocessing.lang"],
-    install_requires=["unidecode", "PyStemmer", "spacy>=2.1", "python-rapidjson", "mmh3", "requests"],
+    install_requires=["unidecode", "PyStemmer", "spacy>=3.0", "python-rapidjson", "mmh3", "requests"],
 )

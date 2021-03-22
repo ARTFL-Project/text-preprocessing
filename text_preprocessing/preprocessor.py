@@ -310,12 +310,6 @@ class PassThroughTokenizer:
         self.vocab = vocab
 
     def __call__(self, tokens):
-        # if isinstance(tokens, list):
-        #     try:
-        #         return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
-        #     except AttributeError:
-        #         return spacy.tokens.Doc(self.vocab, words=tokens)
-        # else:
         try:
             return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
         except AttributeError:

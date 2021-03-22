@@ -58,7 +58,26 @@ PHILO_TEXT_OBJECT_TYPE: Dict[str, int] = {
 
 PHILO_OBJECT_LEVEL: Dict[int, str] = {1: "doc", 2: "div1", 3: "div2", 4: "div3", 5: "para", 6: "sent", 7: "word"}
 
-SPACY_LANGUAGE_MODEL_MAP = {"french": "fr", "english": "en"}
+# Updated as of 3/22/2021
+SPACY_LANGUAGE_MODEL_MAP: Dict[str, List[str]] = {
+    "danish": ["da_core_news_sm", "da_core_news_md", "da_core_news_lg"],
+    "german": ["de_core_news_sm", "de_core_news_md", "de_core_news_lg", "de_dep_news_trf"],
+    "greek": ["el_core_news_sm", "el_core_news_md", "el_core_news_lg"],
+    "english": ["en_core_web_sm", "en_core_web_md", "en_core_web_lg", "en_core_web_trf"],
+    "spanish": ["es_core_news_sm", "es_core_news_md", "es_core_news_lg", "es_dep_news_trf"],
+    "french": ["fr_core_news_sm", "fr_core_news_md", "fr_core_news_lg", "fr_dep_news_trf"],
+    "italian": ["it_core_news_sm", "it_core_news_md", "it_core_news_lg"],
+    "japanese": ["ja_core_news_sm", "ja_core_news_md", "ja_core_news_lg"],
+    "lithuanian": ["lt_core_news_sm", "lt_core_news_md", "lt_core_news_lg"],
+    "norwegian bokmål": ["nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"],
+    "dutch": ["nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"],
+    "polish": ["pl_core_news_sm", "pl_core_news_md", "pl_core_news_lg"],
+    "portuguese": ["pt_core_news_sm", "pt_core_news_md", "pt_core_news_lg"],
+    "romanian": ["ro_core_news_sm", "ro_core_news_md", "ro_core_news_lg"],
+    "russian": ["ru_core_news_sm", "ru_core_news_md", "ru_core_news_lg"],
+    "multi-language": ["xx_ent_wiki_sm", "xx_sent_ud_sm"],
+    "chinese": ["zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg", "zh_core_web_trf"],
+}
 
 
 class Token(str):
@@ -270,15 +289,42 @@ class Tokens:
         self.tokens = deque(Token(t[0], t[1], t[2], t[3]) for t in tokens["tokens"])
 
 
+def check_for_updates(language):
+    import requests
+
+    response = requests.get("https://raw.githubusercontent.com/explosion/spaCy/master/website/meta/languages.json")
+    if response.status_code == 404:
+        print("Unable to fetch language information from Spacy GitHub")
+        return {}
+    try:
+        languages = response.json()
+        models = {lang["name"].lower(): lang["models"] for lang in languages["languages"] if "models" in lang}
+        model = models[language]
+    except KeyError:
+        return {}
+    return model
+
+
 def load_language_model(language):
     try:
-        spacy_language_code = SPACY_LANGUAGE_MODEL_MAP[language]
-        nlp = spacy.load(
-            spacy_language_code, disable=["parser", "ner", "textcat"]
-        )  # assuming first two letters define language model
-    except IndexError as e:
-        print(e)
-        print(f"Error loading Spacy language model. Spacy may not support {language} POS tagging")
+        possible_models = SPACY_LANGUAGE_MODEL_MAP[language.lower()]
+    except KeyError:
+        try:
+            possible_models = check_for_updates(language.lower())
+        except KeyError:
+            print(f"Spacy does not support the {language} language.")
+            exit(-1)
+    nlp = None
+    possible_models  # load the best model first
+    for model in possible_models:
+        try:
+            nlp = spacy.load(model, disable=["parser", "ner", "textcat"])
+        except OSError:
+            pass
+        if nlp is not None:
+            break
+    if nlp is None:
+        print(f"No Spacy model installed for the {language} language")
         exit(-1)
     return nlp
 

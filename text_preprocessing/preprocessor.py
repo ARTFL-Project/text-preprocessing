@@ -310,11 +310,16 @@ class PassThroughTokenizer:
         self.vocab = vocab
 
     def __call__(self, tokens):
-        if isinstance(tokens, list):
+        # if isinstance(tokens, list):
+        #     try:
+        #         return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
+        #     except AttributeError:
+        #         return spacy.tokens.Doc(self.vocab, words=tokens)
+        # else:
+        try:
             return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
-        elif isinstance(tokens.tokens, list):
+        except AttributeError:
             return spacy.tokens.Doc(self.vocab, words=tokens)
-        return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
 
 
 def load_language_model(language):
@@ -517,7 +522,7 @@ class PreProcessor:
     @classmethod
     def process_string(cls, text, keep_all=True):
         """Take a string and return a list of preprocessed tokens"""
-        tokens = cls.tokenize_text(text)
+        tokens = list(cls.tokenize_text(text))
         cls.keep_all = keep_all
         if cls.with_pos is True or cls.pos_to_keep or cls.lemmatizer == "spacy":
             tokens = cls.pos_tag_text(tokens)

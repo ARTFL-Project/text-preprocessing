@@ -305,6 +305,18 @@ def check_for_updates(language):
     return model
 
 
+class PassThroughTokenizer:
+    def __init__(self, vocab):
+        self.vocab = vocab
+
+    def __call__(self, tokens):
+        if isinstance(tokens, list):
+            return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
+        elif isinstance(tokens.tokens, list):
+            return spacy.tokens.Doc(self.vocab, words=tokens)
+        return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])
+
+
 def load_language_model(language):
     try:
         possible_models = SPACY_LANGUAGE_MODEL_MAP[language.lower()]
@@ -318,7 +330,8 @@ def load_language_model(language):
     possible_models  # load the best model first
     for model in possible_models:
         try:
-            nlp = spacy.load(model, disable=["parser", "ner", "textcat"])
+            nlp = spacy.load(model, exclude=["parser", "ner", "textcat"])
+            nlp.tokenizer = PassThroughTokenizer(nlp.vocab)
         except OSError:
             pass
         if nlp is not None:
@@ -701,8 +714,7 @@ class PreProcessor:
     def pos_tag_text(cls, text: Iterable[Token]) -> List[Token]:
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
-        text = list(text)
-        tagged_doc: Iterable = cls.nlp.get_pipe("tagger")(spacy.tokens.Doc(cls.nlp.vocab, [w.text for w in text]))
+        tagged_doc: Iterable = cls.nlp(list(text))
         if cls.pos_to_keep:
             if cls.lemmatizer and cls.lemmatizer != "spacy":
                 processed_doc: List[Token] = []

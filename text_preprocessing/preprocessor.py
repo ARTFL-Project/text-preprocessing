@@ -3,16 +3,13 @@
 
 import json
 import os
-import random
 import re
 import sqlite3
-import string
 import sys
 import unicodedata
 from collections import defaultdict, deque
 from html import unescape as unescape_html
 from itertools import combinations
-from math import floor
 from typing import (
     Any,
     Callable,
@@ -23,7 +20,6 @@ from typing import (
     Iterator,
     List,
     Optional,
-    Pattern,
     Set,
     Tuple,
     Union,
@@ -31,6 +27,7 @@ from typing import (
 )
 from xml.sax.saxutils import unescape as unescape_xml
 
+import lz4.frame
 import mmh3
 import rapidjson
 import spacy
@@ -540,7 +537,11 @@ class PreProcessor:
             cursor: sqlite3.Cursor = db.cursor()
         metadata_cache: DefaultDict[str, Dict[str, Any]] = defaultdict(dict)
         metadata: List = []
-        with open(text) as philo_db_text:
+        if text.endswith(".lz4"):
+            open_file = lz4.frame.open
+        else:
+            open_file = open
+        with open_file(text) as philo_db_text:
             for line in philo_db_text:
                 word_obj: Dict[str, Any] = rapidjson.loads(line.strip())
                 object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[cls.text_object_type]])

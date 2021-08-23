@@ -4,11 +4,11 @@
 from typing import Dict
 
 
-class modernizer:
+class Modernizer:
     """Modernizes supported languages
     Emulates a basic dict interface with dict[key] and .get method"""
 
-    language_dict: Dict[str, str]
+    language_dict: Dict[str, str] = {}
 
     @classmethod
     def __init__(cls, language: str):

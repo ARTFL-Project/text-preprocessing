@@ -148,10 +148,18 @@ class Tokens:
         self.tokens: Deque[Token] = deque(tokens)
         self.metadata: Dict[str, Any] = metadata
         self.length: int = len(self.tokens)
+        self.iter_index = 0
 
     def __iter__(self) -> Iterator[Token]:
         for token in self.tokens:
             yield token
+
+    def __next__(self):
+        self.iter_index += 1
+        if self.iter_index < self.length:
+            return self.tokens[self.iter_index]
+        else:
+            raise IndexError
 
     @overload
     def __getitem__(self, index: int) -> Token:
@@ -696,7 +704,11 @@ class PreProcessor:
     def pos_tag_text(cls, text: Iterable[Token]) -> List[Token]:
         """POS tag document. Return tagged document"""
         # We bypass Spacy's tokenizer which is slow and call the POS tagger directly from the language model
-        tagged_doc: Iterable = cls.nlp(list(text))
+        try:
+            tagged_doc: Iterable = cls.nlp(list(text))
+        except ValueError:  # text is longer than 1,000,000 characters (default spacy limit)
+            nlp = load_language_model(cls.language)
+            tagged_doc: Iterable = nlp(list(text))
         if cls.pos_to_keep:
             if cls.lemmatizer and cls.options["spacy_lemmatizer"] is False:
                 processed_doc: List[Token] = []

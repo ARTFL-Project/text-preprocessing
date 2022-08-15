@@ -105,7 +105,6 @@ class Token(str):
         text: str,
         surface_form: str = "",
         pos_: str = "",
-        ents_: str = "",
         ext: Dict[str, Any] = None,
     ):
         self.text = text or ""
@@ -113,7 +112,6 @@ class Token(str):
         self.ext = ext or {}
         self.ext["pos"] = pos_
         self.pos_ = pos_
-        self.ents_ = ents_
 
     def __hash__(self):
         return hash(self.text)

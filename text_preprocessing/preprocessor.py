@@ -135,10 +135,11 @@ class Tokens:
     def __spacy_doc_to_tokens(self, doc: Doc) -> Tuple[Deque[Token], Dict[str, Any]]:
         tokens = deque()
         for token in doc:
-            local_token = Token(
-                token.text, surface_form=token._.surface_form, pos=token.pos_, ent=token.ent_type_, ext=token._.ext
-            )
-            tokens.append(local_token)
+            if token.text != "EMPTY_STRING":
+                local_token = Token(
+                    token.text, surface_form=token._.surface_form, pos=token.pos_, ent=token.ent_type_, ext=token._.ext
+                )
+                tokens.append(local_token)
         return tokens, doc.user_data
 
     def __iter__(self) -> Iterator[Token]:
@@ -549,10 +550,10 @@ class PreProcessor:
         elif os.path.isfile(file_path) is False:
             print("Stopwords file", file_path, "not found. Exiting...")
             exit()
-        stopwords = set()
+        stopwords = []
         with open(file_path) as stopword_file:
             for line in stopword_file:
-                stopwords.add(line.strip())
+                stopwords.append(line.strip())
         return stopwords
 
     @classmethod
@@ -569,7 +570,7 @@ class PreProcessor:
     @classmethod
     def format(cls, doc: Doc) -> Tokens:
         """Format output"""
-        return Tokens(doc)
+        return Tokens(doc, doc.user_data)
 
 
 def recursive_search(

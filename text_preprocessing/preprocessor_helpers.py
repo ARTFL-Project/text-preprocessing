@@ -30,7 +30,7 @@ NUMBERS = re.compile(r"\d")
 TAGS = re.compile(r"<[^>]+>")
 
 
-def entities_to_string(text):
+def entities_to_string(text: str) -> str:
     """Convert entities to text"""
     text = unescape_html(text)
     text = unescape_xml(text)
@@ -67,15 +67,17 @@ def normalize(
             len(token_text) < min_word_length,
         )
     ):
-        return "", surface_form
+        return "EMPTY_STRING", surface_form
     if strip_punctuation is True:
         token_text = token_text.translate(PUNCTUATION_MAP)
     elif token_text in PUNCTUATION_CLASS:
-        return "", surface_form
+        return "EMPTY_STRING", surface_form
     if stemmer is not False:
         token_text = stemmer.stemWord(token_text)  # type: ignore
     if ascii is True:
         token_text = unidecode(token_text)
     if hash_tokens is True:
         token_text = str(mmh3.hash(token_text))
+    if token_text == "":
+        token_text = "EMPTY_STRING"
     return token_text, surface_form

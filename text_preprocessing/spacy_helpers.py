@@ -148,6 +148,8 @@ def init_normalizer(
 ):
     if stopwords is None:
         stopwords = []
+    else:
+        stopwords = set(stopwords)
     if stemmer is True:
         stemmer = Stemmer(language)
         stemmer.maxCacheSize = 50000
@@ -159,6 +161,10 @@ def init_normalizer(
         ents = []
         pos = []
         surface_forms = []
+        if doc[0].pos_ == 0:
+            pos = None
+        if doc[0].ent_type == 0:
+            ents = None
         for token in doc:
             token_text, surface_form = normalize(
                 token,
@@ -176,12 +182,24 @@ def init_normalizer(
             surface_forms.append(surface_form)
             tokens.append(token_text)
             lemmas.append(token.lemma_)
-            pos.append(token.pos_)
-            if token.ent_type_:
-                ents.append(f"{token.ent_iob_}-{token.ent_type_}")
-            else:
-                ents.append(token.ent_iob_)
+            if pos is not None:
+                pos.append(token.pos_)
+            if ents is not None:
+                if token.ent_type_:
+                    ents.append(f"{token.ent_iob_}-{token.ent_type_}")
+                else:
+                    ents.append(token.ent_iob_)
         norm_doc = Doc(vocab=doc.vocab, words=tokens, lemmas=lemmas, pos=pos, ents=ents)
+        # try:
+        #     norm_doc = Doc(vocab=doc.vocab, words=tokens, lemmas=lemmas, pos=pos, ents=ents)
+        # except ValueError:
+        #     with open("debug.txt", "w") as out:
+        #         print("ENTS", type(doc[0].ent_type), ents, file=out)
+        #         print("POS", type(doc[0].pos_), ents, file=out)
+        #         print("WORDS", tokens, file=out)
+        #         print("LEMMAS", lemmas, file=out)
+        #     print("GOT ONE")
+        #     exit(-1)
         for index, surface_form in enumerate(surface_forms):
             norm_doc[index]._.surface_form = surface_form
         return norm_doc

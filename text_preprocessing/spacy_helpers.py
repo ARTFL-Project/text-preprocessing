@@ -329,9 +329,9 @@ def load_language_model(
         nlp = spacy.blank("en")
         nlp.tokenizer = PlainTextTokenizer(nlp.vocab, **tokenizer_config)
     nlp.add_pipe("normalizer", config={"language": language, **normalizer_config})
-    if ngram_config is not None:
+    if ngram_config["ngram_window"] != 0:
         nlp.add_pipe("ngram_generator", config=ngram_config)
-    print(nlp.pipe_names, tokenizer_config)
+    print(ngram_config, nlp.pipe_names)
     return nlp
 
 

@@ -380,10 +380,7 @@ class PreProcessor:
             "strip_tags": strip_tags,
             "token_regex": re.compile(rf"({word_regex})|([^{word_regex}])"),
         }
-        if ngrams:
-            cls.ngram_config = {"ngram_window": ngrams or 0 + ngram_gap, "ngram_word_order": ngram_word_order}
-        else:
-            cls.ngram_config = {}
+        cls.ngram_config = {"ngram_window": ngrams or 0 + ngram_gap, "ngram_word_order": ngram_word_order}
         cls.nlp = load_language_model(
             cls.language,
             cls.tokenizer_config,

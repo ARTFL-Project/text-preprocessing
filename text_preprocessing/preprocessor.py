@@ -66,6 +66,8 @@ class Token(str):
 
     """
 
+    __slots__ = ("text", "surface_form", "ext", "pos_", "ent_type_")
+
     ext: Dict[str, Any]
 
     def __new__(cls, value, surface_form="", pos="", ent="", ext=""):
@@ -121,6 +123,8 @@ class Tokens:
 
     """
 
+    __slots__ = ("metadata", "tokens", "length", "iter_index")
+
     metadata: Dict[str, Any]
 
     def __init__(self, tokens: Union[Doc, Iterable[Token]], metadata: Dict[str, Any]):
@@ -136,10 +140,15 @@ class Tokens:
         tokens = deque()
         for token in doc:
             if token.text != "EMPTY_STRING":
-                local_token = Token(
-                    token.text, surface_form=token._.surface_form, pos=token.pos_, ent=token.ent_type_, ext=token._.ext
+                tokens.append(
+                    Token(
+                        token.text,
+                        surface_form=token._.surface_form,
+                        pos=token.pos_,
+                        ent=token.ent_type_,
+                        ext=token._.ext,
+                    )
                 )
-                tokens.append(local_token)
         return tokens, doc.user_data
 
     def __iter__(self) -> Iterator[Token]:
@@ -452,8 +461,9 @@ class PreProcessor:
                 cls.language,
                 cls.tokenizer_config,
                 cls.normalizer_config,
-                filter_config=cls.filter_config,
-                ngram_config=cls.ngram_config,
+                cls.filter_config,
+                cls.ngram_config,
+                cls.is_philo_db,
             )
             with open(text, encoding="utf-8") as text_file:
                 text_data = text_file.read()
@@ -468,7 +478,7 @@ class PreProcessor:
     def process_string(cls, text, keep_all=True):
         """Take a string and return a list of preprocessed tokens"""
         doc = cls.nlp(text)
-        return Tokens(doc)
+        return Tokens(doc, doc.user_data)
 
     @classmethod
     def process_philo_text(cls, text: str, fetch_metadata: bool = True):

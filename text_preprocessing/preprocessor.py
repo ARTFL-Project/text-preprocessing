@@ -375,6 +375,7 @@ class PreProcessor:
             cls.modernize = modernize
             cls.modernizer = Modernizer(language)
         cls.tokenizer_config = {
+            "language": language,
             "modernize": modernize,
             "strip_tags": strip_tags,
             "token_regex": re.compile(rf"({word_regex})|([^{word_regex}])"),
@@ -382,13 +383,14 @@ class PreProcessor:
         if ngrams:
             cls.ngram_config = {"ngram_window": ngrams or 0 + ngram_gap, "ngram_word_order": ngram_word_order}
         else:
-            cls.ngram_config = None
+            cls.ngram_config = {}
         cls.nlp = load_language_model(
             cls.language,
             cls.tokenizer_config,
             cls.normalizer_config,
-            filter_config=cls.filter_config,
-            ngram_config=cls.ngram_config,
+            cls.filter_config,
+            cls.ngram_config,
+            cls.is_philo_db,
         )
         cls.text_object_type = text_object_type
         cls.return_type = return_type

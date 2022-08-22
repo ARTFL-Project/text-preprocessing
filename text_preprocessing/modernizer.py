@@ -13,11 +13,11 @@ class Modernizer:
     @classmethod
     def __init__(cls, language: str):
         if language == "french":
-            from .lang.fr_dict import french_dict
+            from lang.fr_dict import french_dict
 
             cls.language_dict = french_dict
         elif language == "english":
-            from .lang.en_dict import english_dict
+            from lang.en_dict import english_dict
 
             cls.language_dict = english_dict
 

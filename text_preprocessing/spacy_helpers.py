@@ -190,16 +190,6 @@ def init_normalizer(
                 else:
                     ents.append(token.ent_iob_)
         norm_doc = Doc(vocab=doc.vocab, words=tokens, lemmas=lemmas, pos=pos, ents=ents)
-        # try:
-        #     norm_doc = Doc(vocab=doc.vocab, words=tokens, lemmas=lemmas, pos=pos, ents=ents)
-        # except ValueError:
-        #     with open("debug.txt", "w") as out:
-        #         print("ENTS", type(doc[0].ent_type), ents, file=out)
-        #         print("POS", type(doc[0].pos_), ents, file=out)
-        #         print("WORDS", tokens, file=out)
-        #         print("LEMMAS", lemmas, file=out)
-        #     print("GOT ONE")
-        #     exit(-1)
         for index, surface_form in enumerate(surface_forms):
             norm_doc[index]._.surface_form = surface_form
         return norm_doc
@@ -289,40 +279,59 @@ def load_language_model(
     language,
     tokenizer_config: Dict[str, Any],
     normalizer_config,
-    filter_config=None,
-    ngram_config=None,
+    filter_config: Dict[str, Any],
+    ngram_config: Dict[str, Any],
+    is_philo_db: bool,
 ):
     """Load language model based on name"""
-    language = language.lower()
-    try:
-        possible_models = SPACY_LANGUAGE_MODEL_MAP[language]
-    except KeyError:
-        try:
-            possible_models = check_for_updates(language)
-        except KeyError:
-            print(f"Spacy does not support the {language} language.")
-            exit(-1)
     nlp = None
-    for model in possible_models:
+    if any(
+        (
+            filter_config["pos_to_keep"] is not None,
+            filter_config["ents_to_keep"] is not None,
+            normalizer_config["lemmatizer"] == "spacy",
+        )
+    ):
+        language = language.lower()
         try:
-            if filter_config is None or not filter_config["ents_to_keep"]:
-                nlp = spacy.load(model, exclude=["parser", "ner", "textcat"])
-            else:
-                nlp = spacy.load(model)
-            nlp.tokenizer = PassThroughTokenizer(nlp.vocab)
-        except OSError:
-            pass
-        if nlp is not None:
-            break
-    if nlp is None:
-        print(f"No Spacy model installed for the {language} language. Using a blank model.")
+            possible_models = SPACY_LANGUAGE_MODEL_MAP[language]
+        except KeyError:
+            try:
+                possible_models = check_for_updates(language)
+            except KeyError:
+                print(f"Spacy does not support the {language} language.")
+                exit(-1)
+        for model in possible_models:
+            try:
+                if filter_config is None or not filter_config["ents_to_keep"]:
+                    nlp = spacy.load(model, exclude=["parser", "ner", "textcat"])
+                else:
+                    nlp = spacy.load(model)
+                if is_philo_db:
+                    nlp.tokenizer = PassThroughTokenizer(nlp.vocab)
+                else:
+                    nlp.tokenizer = PlainTextTokenizer(nlp.vocab, **tokenizer_config)
+            except OSError:
+                pass
+            if nlp is not None:
+                break
+        if nlp is None:
+            print(f"No Spacy model installed for the {language} language. Stopping...")
+            exit(-1)
+        if any(
+            (
+                filter_config["pos_to_keep"] is not None,
+                filter_config["ents_to_keep"] is not None,
+            )
+        ):
+            nlp.add_pipe("filter_tokens", config=filter_config)
+    else:
         nlp = spacy.blank("en")
-        nlp.tokenizer = PlainTextTokenizer(Vocab, **tokenizer_config)
-    if filter_config is not None:
-        nlp.add_pipe("filter_tokens", config=filter_config)
+        nlp.tokenizer = PlainTextTokenizer(nlp.vocab, **tokenizer_config)
     nlp.add_pipe("normalizer", config={"language": language, **normalizer_config})
     if ngram_config is not None:
         nlp.add_pipe("ngram_generator", config=ngram_config)
+    print(nlp.pipe_names, tokenizer_config)
     return nlp
 
 

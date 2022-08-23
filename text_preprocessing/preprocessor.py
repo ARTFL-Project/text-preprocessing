@@ -85,7 +85,6 @@ class Token(str):
         self.text = text or ""
         self.surface_form = surface_form or text
         self.ext = ext or {}
-        self.ext["pos"] = pos
         self.pos_ = pos
         self.ent_type_ = ent
 

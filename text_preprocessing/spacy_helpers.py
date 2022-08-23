@@ -174,11 +174,13 @@ def init_normalizer(
         ents = []
         pos = []
         surface_forms = []
+        exts = []
         if doc[0].pos_ == 0:
             pos = None
         if doc[0].ent_type == 0:
             ents = None
         for token in doc:
+            exts.append(token._.ext)
             token_text, surface_form = normalize(
                 token,
                 stemmer,
@@ -205,6 +207,7 @@ def init_normalizer(
         norm_doc = Doc(vocab=doc.vocab, words=tokens, lemmas=lemmas, pos=pos, ents=ents)
         for index, surface_form in enumerate(surface_forms):
             norm_doc[index]._.surface_form = surface_form
+            norm_doc[index]._.ext = exts[index]
         norm_doc._.metadata = doc._.metadata
         return norm_doc
 
@@ -234,6 +237,7 @@ def init_filter_tokens(nlp, name, pos_to_keep, ents_to_keep):
         lemmas = []
         ents = []
         pos = []
+        exts = []
         for token in doc:
             keep_ent = False
             if filter_ents is True:
@@ -249,8 +253,11 @@ def init_filter_tokens(nlp, name, pos_to_keep, ents_to_keep):
             else:
                 ents.append(token.ent_iob_)
             pos.append(token.pos_)
+            exts.append(token._.ext)
         filtered_doc = Doc(nlp.vocab, words=words, lemmas=lemmas, pos=pos, ents=ents)
         filtered_doc._.metadata = doc._.metadata
+        for index, ext in enumerate(exts):
+            filtered_doc[index]._.ext = ext
         return filtered_doc
 
     return filter_tokens
@@ -285,7 +292,7 @@ def init_generate_ngrams(nlp, name, ngram_window, ngram_size, ngram_word_order):
         ngram_doc = Doc(nlp.vocab, words=ngrams)
         ngram_doc._.metadata = doc._.metadata
         for index, ext in enumerate(extras):
-            ngram_doc[index]._.ext = extras
+            ngram_doc[index]._.ext = extras[index]
         return ngram_doc
 
     return generate_ngrams
@@ -372,12 +379,14 @@ if __name__ == "__main__":
             "hash_tokens": False,
             "min_word_length": 1,
             "stopwords": None,
+            "lemmatizer": {},
         },
         {"pos_to_keep": ["NOUN", "ADJ"], "ents_to_keep": ["PER", "LOC"]},
-        {"ngram_window": 0, "ngram_word_order": True},
+        {"ngram_window": 3, "ngram_word_order": True},
         False,
     )
-    s = """Comme pour « l’incident » survenu sur l’aérodrome de Saky, Kiev n’a pas revendiqué d’attaque sur Djankoï, un conseiller présidentiel, Mykhaïlo Podoliak, se contentant de confirmer l’explosion. Un responsable ukrainien a cependant affirmé au New York Times, sous couvert d’anonymat, qu’une unité militaire d’élite ukrainienne opérant derrière les lignes ennemies était à l’origine de l’attaque. Les responsables ukrainiens ont aussi prévenu mardi que la Crimée ne serait pas épargnée par les ravages de la guerre."""
-    doc = nlp(s)
+    import sys
+
+    doc = nlp(sys.argv[1])
     for token in doc:
         print(token._.surface_form, token.text)

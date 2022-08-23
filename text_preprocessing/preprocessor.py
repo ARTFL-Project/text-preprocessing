@@ -553,7 +553,7 @@ class PreProcessor:
         return docs, metadata
 
     @classmethod
-    def __get_stopwords(cls, file_path: Optional[str]) -> Set[str]:
+    def __get_stopwords(cls, file_path: Optional[str]) -> List[str]:
         if file_path is None:
             return []
         elif os.path.isfile(file_path) is False:

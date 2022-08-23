@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Text Preprocessor"""
 
-import json
 import os
 import re
 import sqlite3
@@ -25,7 +24,7 @@ from typing import (
 )
 
 import lz4.frame
-import rapidjson
+import orjson
 from multiprocess.pool import Pool
 from spacy.tokens import Doc
 
@@ -287,13 +286,14 @@ class Tokens:
         tokens_to_serialize = {"tokens": [], "metadata": self.metadata}
         for token in self:
             tokens_to_serialize["tokens"].append((token.text, token.surface_form, token.pos_, token.ext))
-        with open(path, "w") as output:
-            json.dump(tokens_to_serialize, output)
+        with open(path, "wb") as output:
+            output.write(orjson.dumps(tokens_to_serialize))
 
     def load(self, path):
         """Load tokens from disk"""
         with open(path, "r") as input_file:
-            tokens = json.load(input_file)
+            data = input_file.read()
+        tokens = orjson.loads(data)
         self.metadata = tokens["metadata"]
         self.tokens = deque(Token(t[0], t[1], t[2], t[3]) for t in tokens["tokens"])
 
@@ -361,7 +361,7 @@ class PreProcessor:
         hash_tokens: bool = False,
         workers: Optional[int] = None,
         post_processing_function: Optional[Callable] = None,
-        **extra_options,  # this is meant to make the constructor accept invalid keywords
+        **_,  # this is meant to make the constructor accept invalid keywords
     ):
         cls.language = language
         cls.is_philo_db = is_philo_db
@@ -502,7 +502,7 @@ class PreProcessor:
             open_file = open
         with open_file(text) as philo_db_text:
             for line in philo_db_text:
-                word_obj: Dict[str, Any] = rapidjson.loads(line.strip())
+                word_obj: Dict[str, Any] = orjson.loads(line.strip())
                 object_id = " ".join(word_obj["position"].split()[: PHILO_TEXT_OBJECT_TYPE[cls.text_object_type]])
                 if current_object_id == "":
                     current_object_id = object_id

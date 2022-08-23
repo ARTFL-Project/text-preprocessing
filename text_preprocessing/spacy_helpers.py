@@ -13,25 +13,32 @@ from preprocessor_helpers import normalize
 from modernizer import Modernizer
 
 
-# Updated as of 3/22/2021
+# Updated as of 8/23/2022
 SPACY_LANGUAGE_MODEL_MAP: Dict[str, List[str]] = {
+    "catalan": ["ca_core_news_sm", "ca_core_news_md", "ca_core_news_lg", "ca_core_news_trf"],
+    "chinese": ["zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg", "zh_core_web_trf"],
+    "croation": ["hr_core_news_sm", "hr_core_news_md", "hr_core_news_lg"],
     "danish": ["da_core_news_sm", "da_core_news_md", "da_core_news_lg"],
+    "dutch": ["nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"],
+    "english": ["en_core_web_sm", "en_core_web_md", "en_core_web_lg", "en_core_web_trf"],
+    "finnish": ["fi_core_news_sm", "fi_core_news_md", "fi_core_news_lg"],
     "german": ["de_core_news_sm", "de_core_news_md", "de_core_news_lg", "de_dep_news_trf"],
     "greek": ["el_core_news_sm", "el_core_news_md", "el_core_news_lg"],
-    "english": ["en_core_web_sm", "en_core_web_md", "en_core_web_lg", "en_core_web_trf"],
-    "spanish": ["es_core_news_sm", "es_core_news_md", "es_core_news_lg", "es_dep_news_trf"],
     "french": ["fr_core_news_sm", "fr_core_news_md", "fr_core_news_lg", "fr_dep_news_trf"],
     "italian": ["it_core_news_sm", "it_core_news_md", "it_core_news_lg"],
     "japanese": ["ja_core_news_sm", "ja_core_news_md", "ja_core_news_lg"],
+    "korean": ["ko_core_news_sm", "ko_core_news_md", "ko_core_news_lg"],
     "lithuanian": ["lt_core_news_sm", "lt_core_news_md", "lt_core_news_lg"],
-    "norwegian bokmål": ["nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"],
-    "dutch": ["nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"],
+    "macedonian": ["mk_core_news_sm", "mk_core_news_md", "mk_core_news_lg"],
+    "norwegian": ["nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"],
     "polish": ["pl_core_news_sm", "pl_core_news_md", "pl_core_news_lg"],
     "portuguese": ["pt_core_news_sm", "pt_core_news_md", "pt_core_news_lg"],
     "romanian": ["ro_core_news_sm", "ro_core_news_md", "ro_core_news_lg"],
     "russian": ["ru_core_news_sm", "ru_core_news_md", "ru_core_news_lg"],
+    "spanish": ["es_core_news_sm", "es_core_news_md", "es_core_news_lg", "es_dep_news_trf"],
+    "swedish": ["sv_core_news_sm", "sv_core_news_md", "sv_core_news_lg"],
+    "ukrainian": ["uk_core_news_sm", "uk_core_news_md", "uk_core_news_lg"],
     "multi-language": ["xx_ent_wiki_sm", "xx_sent_ud_sm"],
-    "chinese": ["zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg", "zh_core_web_trf"],
 }
 
 
@@ -343,13 +350,18 @@ def load_language_model(
     nlp.add_pipe("normalizer", config={"language": language, **normalizer_config})
     if ngram_config["ngram_window"] != 0:
         nlp.add_pipe("ngram_generator", config=ngram_config)
-    print(ngram_config, nlp.pipe_names)
     return nlp
 
 
 if __name__ == "__main__":
     nlp = load_language_model(
         "french",
+        {
+            "language": "french",
+            "modernize": Modernizer("french"),
+            "strip_tags": False,
+            "token_regex": re.compile(rf"(\w+)|([^\w+])"),
+        },
         {
             "convert_entities": True,
             "lowercase": True,
@@ -361,7 +373,9 @@ if __name__ == "__main__":
             "min_word_length": 1,
             "stopwords": None,
         },
-        filter_config={"pos_to_keep": ["NOUN", "ADJ"], "ents_to_keep": ["PER", "LOC"]},
+        {"pos_to_keep": ["NOUN", "ADJ"], "ents_to_keep": ["PER", "LOC"]},
+        {"ngram_window": 0, "ngram_word_order": True},
+        False,
     )
     s = """Comme pour « l’incident » survenu sur l’aérodrome de Saky, Kiev n’a pas revendiqué d’attaque sur Djankoï, un conseiller présidentiel, Mykhaïlo Podoliak, se contentant de confirmer l’explosion. Un responsable ukrainien a cependant affirmé au New York Times, sous couvert d’anonymat, qu’une unité militaire d’élite ukrainienne opérant derrière les lignes ennemies était à l’origine de l’attaque. Les responsables ukrainiens ont aussi prévenu mardi que la Crimée ne serait pas épargnée par les ravages de la guerre."""
     doc = nlp(s)

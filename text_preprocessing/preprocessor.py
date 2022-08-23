@@ -48,6 +48,8 @@ PHILO_TEXT_OBJECT_TYPE: Dict[str, int] = {
 
 PHILO_OBJECT_LEVEL: Dict[int, str] = {1: "doc", 2: "div1", 3: "div2", 4: "div3", 5: "para", 6: "sent", 7: "word"}
 
+Doc.set_extension("metadata", default={}, force=True)
+
 
 class Token(str):
     """Token Object class inheriting from string
@@ -149,7 +151,7 @@ class Tokens:
                         ext=token._.ext,
                     )
                 )
-        return tokens, doc.user_data
+        return tokens, doc._.metadata
 
     def __iter__(self) -> Iterator[Token]:
         for token in self.tokens:
@@ -442,8 +444,6 @@ class PreProcessor:
     def __local_process(cls, text):
         if cls.is_philo_db is True:
             text_objects, metadata = cls.process_philo_text(text)
-            for text_tokens, text_metadata in zip(text_objects, metadata):
-                doc = cls.nlp(tokens_to_doc(text_tokens, cls.nlp.vocab, text_metadata))
             if cls.post_func is None:
                 return [
                     cls.format(cls.nlp(tokens_to_doc(text_tokens, cls.nlp.vocab, text_metadata)))
@@ -469,7 +469,7 @@ class PreProcessor:
                 text_data = text_file.read()
             nlp.max_length = len(text_data)
             doc = nlp(text)
-            doc.user_data = {"filename": text}
+            doc._.metadata = {"filename": text}
         if cls.post_func is None:
             return [cls.format(doc)]
         return [cls.post_func(cls.format(doc))]
@@ -478,7 +478,7 @@ class PreProcessor:
     def process_string(cls, text, keep_all=True):
         """Take a string and return a list of preprocessed tokens"""
         doc = cls.nlp(text)
-        return Tokens(doc, doc.user_data)
+        return Tokens(doc, doc._.metadata)
 
     @classmethod
     def process_philo_text(cls, text: str, fetch_metadata: bool = True):
@@ -566,7 +566,9 @@ class PreProcessor:
         return stopwords
 
     @classmethod
-    def __get_lemmatizer(cls, file_path: Optional[str]) -> Dict[str, str]:
+    def __get_lemmatizer(cls, file_path: Optional[str]) -> Union[str, Dict[str, str]]:
+        if file_path == "spacy":
+            return file_path
         if file_path is None or os.path.isfile(file_path) is False:
             return {}
         lemmas: dict = {}
@@ -579,7 +581,7 @@ class PreProcessor:
     @classmethod
     def format(cls, doc: Doc) -> Tokens:
         """Format output"""
-        return Tokens(doc, doc.user_data)
+        return Tokens(doc, doc._.metadata)
 
 
 def recursive_search(

@@ -41,6 +41,7 @@ WORD_CHARS = re.compile(r"\w+")
 
 Token.set_extension("surface_form", default="")
 Token.set_extension("ext", default={})
+Doc.set_extension("metadata", default={})
 
 
 def check_for_updates(language):
@@ -61,9 +62,10 @@ def check_for_updates(language):
 
 
 def tokens_to_doc(tokens, vocab, metadata):
-    doc = Doc(vocab=vocab, words=[t.text for t in tokens], user_data=metadata)
+    doc = Doc(vocab=vocab, words=[t.text for t in tokens])
     for index, token in enumerate(tokens):
         doc[index]._.ext = token.ext
+    doc._.metadata = metadata
     return doc
 
 
@@ -75,9 +77,11 @@ class PassThroughTokenizer:
 
     def __call__(self, tokens):
         try:
-            return spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])  # type: ignore
+            doc = spacy.tokens.Doc(self.vocab, words=[t.text for t in tokens])  # type: ignore
         except AttributeError:
-            return spacy.tokens.Doc(self.vocab, words=tokens)  # type: ignore
+            doc = spacy.tokens.Doc(self.vocab, words=tokens)  # type: ignore
+        doc._.metadata = tokens._.metadata
+        return doc
 
 
 class PlainTextTokenizer:
@@ -104,7 +108,9 @@ class PlainTextTokenizer:
                 words.append(self.modernizer(match[0]))
             else:
                 words.append(match[0])
-        return Doc(self.vocab, words=words)
+        doc = Doc(self.vocab, words=words)
+        doc._.metadata = {"filename": text_path}
+        return doc
 
     def remove_tags(self, text: str):
         end_header_index: int = text.rfind("</teiHeader>")
@@ -192,6 +198,7 @@ def init_normalizer(
         norm_doc = Doc(vocab=doc.vocab, words=tokens, lemmas=lemmas, pos=pos, ents=ents)
         for index, surface_form in enumerate(surface_forms):
             norm_doc[index]._.surface_form = surface_form
+        norm_doc._.metadata = doc._.metadata
         return norm_doc
 
     return normalizer
@@ -236,6 +243,7 @@ def init_filter_tokens(nlp, name, pos_to_keep, ents_to_keep):
                 ents.append(token.ent_iob_)
             pos.append(token.pos_)
         filtered_doc = Doc(nlp.vocab, words=words, lemmas=lemmas, pos=pos, ents=ents)
+        filtered_doc._.metadata = doc._.metadata
         return filtered_doc
 
     return filter_tokens
@@ -268,6 +276,7 @@ def init_generate_ngrams(nlp, name, ngram_window, ngram_size, ngram_word_order):
                     extras.append(ext)
                 ngram.popleft()
         ngram_doc = Doc(nlp.vocab, words=ngrams)
+        ngram_doc._.metadata = doc._.metadata
         for index, ext in enumerate(extras):
             ngram_doc[index]._.ext = extras
         return ngram_doc
@@ -327,7 +336,10 @@ def load_language_model(
             nlp.add_pipe("filter_tokens", config=filter_config)
     else:
         nlp = spacy.blank("en")
-        nlp.tokenizer = PlainTextTokenizer(nlp.vocab, **tokenizer_config)
+        if is_philo_db is True:
+            nlp.tokenizer = PassThroughTokenizer(nlp.vocab)
+        else:
+            nlp.tokenizer = PlainTextTokenizer(nlp.vocab, **tokenizer_config)
     nlp.add_pipe("normalizer", config={"language": language, **normalizer_config})
     if ngram_config["ngram_window"] != 0:
         nlp.add_pipe("ngram_generator", config=ngram_config)

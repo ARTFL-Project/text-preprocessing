@@ -355,7 +355,7 @@ def load_language_model(
         else:
             nlp.tokenizer = PlainTextTokenizer(nlp.vocab, **tokenizer_config)
     nlp.add_pipe("normalizer", config={"language": language, **normalizer_config})
-    if ngram_config["ngram_window"] != 0:
+    if ngram_config["ngram_size"] != 0:
         nlp.add_pipe("ngram_generator", config=ngram_config)
     return nlp
 

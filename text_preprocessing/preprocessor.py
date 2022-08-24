@@ -395,6 +395,8 @@ class PreProcessor:
             "ngram_window": ngrams or 0 + ngram_gap,
             "ngram_word_order": ngram_word_order,
         }
+        cls.ngram_window = ngrams or 0 + ngram_gap
+        cls.ngram_word_order = ngram_word_order
         cls.nlp = load_language_model(
             cls.language,
             cls.tokenizer_config,
@@ -582,9 +584,34 @@ class PreProcessor:
         return lemmas
 
     @classmethod
+    def __generate_ngrams(cls, tokens: Iterable[Token]) -> List[Token]:
+        ngrams: List[Token] = []
+        ngram: Deque[Token] = deque()
+        ngram_text: str
+        for token in tokens:
+            ngram.append(token)
+            if len(ngram) == cls.ngram_window:
+                for local_ngram in combinations(ngram, cls.ngrams):
+                    ext: Dict[str, Any] = local_ngram[0].ext
+                    if cls.ngram_word_order is True:
+                        ngram_text = "_".join(t.text for t in local_ngram)
+                        ext["end_byte"] = local_ngram[-1].ext["end_byte"]
+                    else:
+                        ngram_text = "_".join(t.text for t in sorted(local_ngram, key=lambda x: x.text))
+                        ngram_sorted_position = sorted(local_ngram, key=lambda x: x.ext["start_byte"])
+                        ext["start_byte"] = ngram_sorted_position[0].ext["start_byte"]
+                        ext["end_byte"] = ngram_sorted_position[-1].ext["end_byte"]
+                    ngrams.append(Token(ngram_text, ngram_text, "", ext))
+                ngram.popleft()
+        return ngrams
+
+    @classmethod
     def format(cls, doc: Doc) -> Tokens:
         """Format output"""
-        return Tokens(doc, doc._.metadata)
+        tokens = Tokens(doc, doc._.metadata)
+        if cls.ngrams:
+            tokens = cls.__generate_ngrams(tokens)
+        return tokens
 
 
 def recursive_search(

@@ -299,6 +299,7 @@ class PreProcessor:
     sentence_regex: str = r"[.!?]+"
     language: str = "french"
     lemmatizer: Dict[str, str] = {}
+    lemmatizer_path: str = ""
     modernize: Callable = lambda x: x  # workaround for mypy
     ngrams: int = 0
     ngram_gap: int = 0
@@ -400,6 +401,24 @@ class PreProcessor:
         else:
             cls.workers = workers
         cls.post_func = post_processing_function
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        preproc_repr = ""
+        preproc_repr += "### Preprocessing options ###\n"
+        preproc_repr += f"Language: {self.language}\n"
+        for key, value in self.options.items():
+            preproc_repr += f"{key}: {value}\n"
+        if self.options["spacy_lemmatizer"] is False:
+            preproc_repr += f"Lemmatizer path: {self.lemmatizer_path}\n"
+        preproc_repr += f"word_regex: {self.word_regex}\n"
+        preproc_repr += f"ngrams: {self.ngrams}\n"
+        for key, value in self.filter_config.items():
+            preproc_repr += f"{key}: {value}\n"
+        preproc_repr += f"text_object_type: {self.text_object_type}\n"
+        return preproc_repr
 
     @classmethod
     def process_texts(
@@ -593,15 +612,16 @@ class PreProcessor:
             doc = nlp(text_data)
         processed_doc: List[Token] = []
         for token, old_token in zip(doc, tokens):
-            keep_token = False
-            if cls.filter_config["ents_to_keep"] is not None and token.ent_type_ in cls.filter_config["ents_to_keep"]:
-                keep_token = True
-            if keep_token is False and cls.filter_config["pos_to_keep"] is not None:
-                if token.pos_ in cls.filter_config["pos_to_keep"]:
-                    keep_token = True
+            keep_token = True
+            if cls.filter_config["ents_to_keep"] is not None and token.ent_type_ != "":
+                if token.ent_type_ not in cls.filter_config["ents_to_keep"]:
+                    keep_token = False
+            if cls.filter_config["pos_to_keep"] is not None and token.pos_ not in cls.filter_config["pos_to_keep"]:
+                keep_token = False
             if keep_token is False and cls.keep_all is True:
                 processed_doc.append(Token("", old_token.surface_form, token.pos_, token.ent_type_, old_token.ext))
                 continue
+            # print(keep_token)
             if cls.options["spacy_lemmatizer"] is True:
                 new_token = Token(token.lemma_, old_token.surface_form, token.pos_, token.ent_type_, old_token.ext)
             elif cls.lemmatizer:

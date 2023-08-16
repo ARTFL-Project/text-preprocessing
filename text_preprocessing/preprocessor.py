@@ -323,11 +323,13 @@ class PreProcessor:
         language: str = "french",
         stemmer: bool = False,
         lemmatizer: Optional[str] = None,
+        lemmatizer_path: Optional[str] = None,
         modernize: bool = False,
         ngrams: Optional[int] = None,
         ngram_gap: int = 0,
         ngram_word_order: bool = True,
         stopwords: Optional[str] = None,
+        stopwords_path: Optional[str] = None,
         strip_punctuation: bool = True,
         strip_numbers: bool = True,
         strip_tags: bool = False,
@@ -375,6 +377,7 @@ class PreProcessor:
         }
         if lemmatizer != "spacy":
             cls.lemmatizer = cls.__get_lemmatizer(lemmatizer)
+            cls.lemmatizer_path = lemmatizer
         else:
             cls.options["spacy_lemmatizer"] = True
         cls.min_word_length = min_word_length
@@ -386,6 +389,7 @@ class PreProcessor:
         else:
             cls.options["nlp"] = False
         cls.stopwords = cls.__get_stopwords(stopwords)
+        cls.stopwords_path = stopwords
         cls.ngrams = ngrams or 0
         if cls.ngrams:
             cls.ngram_window = cls.ngrams + ngram_gap
@@ -413,6 +417,7 @@ class PreProcessor:
             preproc_repr += f"{key}: {value}\n"
         if self.options["spacy_lemmatizer"] is False:
             preproc_repr += f"Lemmatizer path: {self.lemmatizer_path}\n"
+        preproc_repr += f"stopwords: {self.stopwords_path}\n"
         preproc_repr += f"word_regex: {self.word_regex}\n"
         preproc_repr += f"ngrams: {self.ngrams}\n"
         for key, value in self.filter_config.items():
@@ -500,7 +505,7 @@ class PreProcessor:
         tokens = list(cls.tokenize_text(text))
         cls.keep_all = keep_all
         if cls.options["with_pos"] is True or cls.pos_to_keep or cls.options["spacy_lemmatizer"] is True:
-            tokens = cls.__run_nlp(tokens)
+            tokens = cls.__run_nlp(tokens, from_string=True)
         elif cls.lemmatizer and cls.options["spacy_lemmatizer"] is False:
             tokens = [Token(cls.lemmatizer.get(word, word), word.surface_form, ext=word.ext) for word in tokens]
         return cls.__normalize_doc(tokens)
@@ -602,8 +607,11 @@ class PreProcessor:
         return lemmas
 
     @classmethod
-    def __run_nlp(cls, tokens: Iterable[Token]) -> List[Token]:
-        text_data = " ".join(tokens)
+    def __run_nlp(cls, tokens: Iterable[Token], from_string=False) -> List[Token]:
+        if from_string is True:
+            text_data = "".join(tokens)
+        else:
+            text_data = " ".join(tokens)
         try:
             doc = cls.nlp(text_data)
         except ValueError:  # text is longer than 1,000,000 characters (default spacy limit)
@@ -619,15 +627,16 @@ class PreProcessor:
             if cls.filter_config["pos_to_keep"] is not None and token.pos_ not in cls.filter_config["pos_to_keep"]:
                 keep_token = False
             if keep_token is False and cls.keep_all is True:
-                processed_doc.append(Token("", old_token.surface_form, token.pos_, token.ent_type_, old_token.ext))
+                processed_doc.append(Token("", token.text, token.pos_, token.ent_type_, old_token.ext))
+                if token.whitespace_:
+                    processed_doc.append(Token(token.whitespace_, token.whitespace_, "", "", old_token.ext))
                 continue
-            # print(keep_token)
             if cls.options["spacy_lemmatizer"] is True:
-                new_token = Token(token.lemma_, old_token.surface_form, token.pos_, token.ent_type_, old_token.ext)
+                new_token = Token(token.lemma_, token.text, token.pos_, token.ent_type_, old_token.ext)
             elif cls.lemmatizer:
                 new_token = Token(
                     cls.lemmatizer.get(token.text.lower(), token.text.lower()),
-                    old_token.surface_form,
+                    token.text,
                     token.pos_,
                     token.ent_type_,
                     old_token.ext,
@@ -635,6 +644,8 @@ class PreProcessor:
             else:
                 new_token = Token(token.text, old_token.surface_form, token.pos_, token.ent_type_, old_token.ext)
             processed_doc.append(new_token)
+            if token.whitespace_:
+                processed_doc.append(Token(token.whitespace_, token.whitespace_, "", "", old_token.ext))
         return processed_doc
 
     @classmethod

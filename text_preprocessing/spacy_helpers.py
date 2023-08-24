@@ -1,12 +1,20 @@
 """Helper functions for Spacy"""
 
+import os
 import re
-from typing import Any, Dict, List
+import sys
+import unicodedata
+from html import unescape as unescape_html
+from typing import Any, Dict, List, Optional
+from xml.sax.saxutils import unescape as unescape_xml
 
 import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Token
+from Stemmer import Stemmer
+from unidecode import unidecode
 
+from .modernizer import Modernizer
 
 # Updated as of 8/23/2022
 SPACY_LANGUAGE_MODEL_MAP: Dict[str, List[str]] = {
@@ -37,13 +45,9 @@ SPACY_LANGUAGE_MODEL_MAP: Dict[str, List[str]] = {
 }
 
 
-TRIM_LAST_SLASH = re.compile(r"/\Z")
-TAGS = re.compile(r"<[^>]+>")
-WORD_CHARS = re.compile(r"\w+")
-
-Token.set_extension("surface_form", default="")
-Token.set_extension("ext", default={})
-Doc.set_extension("metadata", default={})
+PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P"))
+PUNCTUATION_CLASS = set([chr(i) for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P")])
+NUMBERS = re.compile(r"\d")
 
 
 def check_for_updates(language) -> List[str]:
@@ -57,10 +61,210 @@ def check_for_updates(language) -> List[str]:
     try:
         languages = response.json()
         models = {lang["name"].lower(): lang["models"] for lang in languages["languages"] if "models" in lang}
-        model: List[str] = models[language]
+        model: List[str] = models[language][::-1]
+        print(model)
     except KeyError:
         return []
     return model
+
+
+@Language.factory(
+    "postprocessor",
+    default_config={
+        "stemmer": False,
+        "lemmatizer": False,
+        "ngrams": False,
+        "ngram_gap": 0,
+        "ngram_word_order": True,
+        "stopwords": False,
+        "strip_punctuation": True,
+        "strip_numbers": True,
+        "lowercase": True,
+        "min_word_length": 2,
+        "ascii": False,
+        "convert_entities": False,
+        "pos_to_keep": False,
+        "ents_to_keep": False,
+    },
+)
+def post_process_component(
+    nlp: Language,
+    name: str,
+    language: str,
+    stemmer: bool,
+    lemmatizer: str,
+    ngrams: int,
+    ngram_gap: int,
+    ngram_word_order: bool,
+    stopwords: str | bool,
+    strip_punctuation: bool,
+    strip_numbers: bool,
+    lowercase: bool,
+    min_word_length: int,
+    ascii: bool,
+    convert_entities: bool,
+    pos_to_keep: bool | List[str],
+    ents_to_keep: bool | List[str],
+):
+    """Create a preprocessor pipeline component"""
+    return PreProcessingPipe(
+        nlp,
+        language,
+        stemmer,
+        lemmatizer,
+        ngrams,
+        ngram_gap,
+        ngram_word_order,
+        stopwords,
+        strip_punctuation,
+        strip_numbers,
+        lowercase,
+        min_word_length,
+        ascii,
+        convert_entities,
+        pos_to_keep,
+        ents_to_keep,
+    )
+
+
+class PreProcessingPipe:
+    """Preprocessing pipeline component"""
+
+    def __init__(
+        self,
+        nlp,
+        language,
+        stemmer,
+        lemmatizer,
+        ngrams,
+        ngram_gap,
+        ngram_word_order,
+        stopwords,
+        strip_punctuation,
+        strip_numbers,
+        lowercase,
+        min_word_length,
+        ascii,
+        convert_entities,
+        pos_to_keep,
+        ents_to_keep,
+    ):
+        self.nlp = nlp
+        self.stopwords = self.__get_stopwords(stopwords)
+        self.stopwords_path = stopwords
+        self.pos_to_keep = pos_to_keep
+        self.ents_to_keep = ents_to_keep
+
+        self.convert_entities = convert_entities
+        self.ascii = ascii
+        self.lowercase = lowercase
+        self.strip_punctuation = strip_punctuation
+        self.strip_numbers = strip_numbers
+        self.min_word_length = min_word_length
+
+        if stemmer is True:
+            self.stemmer = Stemmer(language)
+            self.stemmer.maxCacheSize = 50000  # type: ignore
+        else:
+            self.stemmer = False
+
+        self.ngrams = ngrams or 0
+        if self.ngrams:
+            self.ngram_window = self.ngrams + ngram_gap
+            self.ngram_word_order = ngram_word_order
+        if lemmatizer != "spacy":
+            self.lemmatizer = self.__get_lemmatizer(lemmatizer)
+            self.lemmatizer_path = lemmatizer
+            self.spacy_lemmatizer = False
+        else:
+            self.spacy_lemmatizer = True
+
+    def __get_stopwords(self, file_path: str | bool) -> set[str]:
+        if not file_path or file_path == "False":
+            return set()
+        elif os.path.isfile(file_path) is False:
+            print("Stopwords file", file_path, "not found. Exiting...")
+            exit()
+        stopwords = set()
+        with open(file_path, encoding="utf-8") as stopword_file:
+            for line in stopword_file:
+                stopwords.add(line.strip())
+        return stopwords
+
+    def __get_lemmatizer(self, file_path: Optional[str]) -> dict[str, str]:
+        if file_path is None or os.path.isfile(file_path) is False:
+            return {}
+        lemmas: dict = {}
+        with open(file_path, encoding="utf-8") as input_file:
+            for line in input_file:
+                word, lemma = line.strip().split("\t")
+                lemmas[word] = lemma
+        return lemmas
+
+    def __call__(self, doc: Doc) -> Doc:
+        """Process a doc"""
+        words = []
+        pos = []
+        ents = []
+        for token in doc:
+            if self.__filter_token(token) is True:
+                normalized_text = "#DEL#"
+            else:
+                normalized_text = self.__normalize_token(token)
+            if not normalized_text:
+                normalized_text = "#DEL#"
+            words.append(normalized_text)
+            pos.append(token.pos_)
+            if self.ents_to_keep and token.ent_iob_ != "O":
+                ents.append(f"{token.ent_iob_}-{token.ent_type_}")
+            else:
+                ents.append("")
+        new_doc = Doc(self.nlp.vocab, words=words, pos=pos, ents=ents)
+        assert len(new_doc) == len(doc)
+        for index, token in enumerate(doc):
+            new_doc[index]._.surface_form = token._.surface_form
+            new_doc[index]._.ext = token._.ext
+        return new_doc
+
+    def __filter_token(self, token: Token) -> bool:
+        """Filter tokens based on pos and ents"""
+        if token.text in self.stopwords:
+            return True
+        if self.ents_to_keep and token.ent_type_ != "":
+            if token.ent_type_ not in self.ents_to_keep:
+                return True
+            return False
+        if self.pos_to_keep and token.pos_ not in self.pos_to_keep:
+            return True
+        return False
+
+    def __normalize_token(self, orig_token: Token) -> str:
+        """Normalize a token"""
+        token = orig_token.text.strip()
+        if self.convert_entities is True:
+            token = unescape_html(token)
+            token = unescape_xml(token)
+        if self.spacy_lemmatizer is True:
+            token = orig_token.lemma_
+        elif self.lemmatizer:
+            token = self.lemmatizer.get(token, token)
+        if self.lowercase is True:
+            token = token.lower()
+        if token in self.stopwords:
+            return "#DEL#"
+        if self.strip_punctuation is True:
+            token = token.translate(PUNCTUATION_MAP)
+        elif token in PUNCTUATION_CLASS:
+            return token
+        if self.strip_numbers is True and NUMBERS.search(token):
+            return "#DEL#"
+        if self.stemmer is not False:
+            token = self.stemmer.stemWord(token)  # type: ignore
+        if len(token) < self.min_word_length:
+            return "#DEL#"
+        if self.ascii is True:
+            token = unidecode(token)
+        return token
 
 
 class PassThroughTokenizer:
@@ -74,35 +278,51 @@ class PassThroughTokenizer:
         return doc
 
 
-def load_language_model(
-    language,
-    filter_config: Dict[str, Any],
-) -> Language:
+def load_language_model(language, normalize_options: dict[str, Any]) -> Language:
     """Load language model based on name"""
     nlp = None
     language = language.lower()
     try:
-        possible_models = SPACY_LANGUAGE_MODEL_MAP[language]
+        possible_models = SPACY_LANGUAGE_MODEL_MAP[language][::-1]
     except KeyError:
         try:
             possible_models = check_for_updates(language)
         except KeyError:
             print(f"Spacy does not support the {language} language.")
             exit(-1)
-    for model in possible_models:
-        try:
-            if filter_config["pos_to_keep"] is not None or filter_config["ents_to_keep"] is not None:
-                nlp = spacy.load(model, exclude=["parser", "ner", "textcat"])
-            else:
-                nlp = spacy.load(model)
-            nlp.tokenizer = PassThroughTokenizer(nlp.vocab)
-        except OSError:
-            pass
-        if nlp is not None:
-            break
-    if nlp is None:
-        print(f"No Spacy model installed for the {language} language. Stopping...")
-        exit(-1)
+    if any(
+        (
+            normalize_options["lemmatizer"] == "spacy",
+            normalize_options["pos_to_keep"],
+            normalize_options["ents_to_keep"],
+        )
+    ):
+        diabled_pipelines = ["tokenizer", "textcat"]
+        if not normalize_options["pos_to_keep"]:
+            diabled_pipelines.append("tagger")
+        if not normalize_options["ents_to_keep"]:
+            diabled_pipelines.append("ner")
+        model_loaded = ""
+        spacy.prefer_gpu()
+        for model in possible_models:
+            try:
+                nlp = spacy.load(model, exclude=diabled_pipelines)
+                print("Using Spacy model", model)
+            except OSError:
+                pass
+            if nlp is not None:
+                model_loaded = model
+                break
+        if nlp is None:
+            print(f"No Spacy model installed for the {language} language. Stopping...")
+            exit(-1)
+        nlp.add_pipe("postprocessor", config=normalize_options, last=True)
+        if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
+            print(f"There is no NER pipeline for model {model_loaded}. Exiting...")
+            exit(-1)
+        return nlp
+    nlp = spacy.blank("en")
+    nlp.add_pipe("postprocessor", config=normalize_options, last=True)
     return nlp
 
 

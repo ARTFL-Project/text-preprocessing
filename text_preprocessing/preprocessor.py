@@ -393,14 +393,25 @@ class PreProcessor:
         fetched_texts = self.text_fetcher(
             texts, do_nlp=self.do_nlp, keep_all=keep_all, progress=progress, post_func=self.post_func
         )
+        if self.text_fetcher.text_object_type in ("para", "sent"):
+            fetched_texts = self.nlp.pipe(
+                ((make_spacy_doc(self.nlp, tokens), c) for tokens, c in fetched_texts), as_tuples=True
+            )
         for tokens, doc_count in fetched_texts:
             count += 1
             if progress is True:
-                print(
-                    f"\r{progress_prefix} {doc_count} done: {count} text objects extracted... ",
-                    end="",
-                    flush=True,
-                )
+                if doc_count is not None:  # workaround for sent and para since nlp.pipe does not return context...
+                    print(
+                        f"\r{progress_prefix} {doc_count} done: {count} text objects extracted... ",
+                        end="",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"\r{progress_prefix} {count} text objects extracted... ",
+                        end="",
+                        flush=True,
+                    )
             if isinstance(tokens, PreparedDoc):
                 spacy_doc = make_spacy_doc(self.nlp, tokens)
                 if spacy_doc._.char_num > 10000:
@@ -415,6 +426,13 @@ class PreProcessor:
                 if self.post_func is not None:
                     processed_doc = self.post_func(tokens)
                     yield processed_doc
+            elif isinstance(tokens, Doc):
+                tokens = Tokens(tokens, keep_all=keep_all)
+                if self.ngram_config is not None:
+                    tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
+                if self.post_func is not None:
+                    tokens = self.post_func(tokens)
+                yield tokens
             else:
                 yield tokens
 

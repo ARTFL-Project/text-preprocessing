@@ -73,9 +73,6 @@ def check_for_updates(language) -> List[str]:
     default_config={
         "stemmer": False,
         "lemmatizer": False,
-        "ngrams": False,
-        "ngram_gap": 0,
-        "ngram_word_order": True,
         "stopwords": False,
         "strip_punctuation": True,
         "strip_numbers": True,
@@ -93,9 +90,6 @@ def post_process_component(
     language: str,
     stemmer: bool,
     lemmatizer: str,
-    ngrams: int,
-    ngram_gap: int,
-    ngram_word_order: bool,
     stopwords: str | bool,
     strip_punctuation: bool,
     strip_numbers: bool,
@@ -112,9 +106,6 @@ def post_process_component(
         language,
         stemmer,
         lemmatizer,
-        ngrams,
-        ngram_gap,
-        ngram_word_order,
         stopwords,
         strip_punctuation,
         strip_numbers,
@@ -136,9 +127,6 @@ class PreProcessingPipe:
         language,
         stemmer,
         lemmatizer,
-        ngrams,
-        ngram_gap,
-        ngram_word_order,
         stopwords,
         strip_punctuation,
         strip_numbers,
@@ -151,7 +139,6 @@ class PreProcessingPipe:
     ):
         self.nlp = nlp
         self.stopwords = self.__get_stopwords(stopwords)
-        self.stopwords_path = stopwords
         self.pos_to_keep = pos_to_keep
         self.ents_to_keep = ents_to_keep
 
@@ -168,10 +155,6 @@ class PreProcessingPipe:
         else:
             self.stemmer = False
 
-        self.ngrams = ngrams or 0
-        if self.ngrams:
-            self.ngram_window = self.ngrams + ngram_gap
-            self.ngram_word_order = ngram_word_order
         if lemmatizer != "spacy":
             self.lemmatizer = self.__get_lemmatizer(lemmatizer)
             self.lemmatizer_path = lemmatizer
@@ -220,9 +203,9 @@ class PreProcessingPipe:
             else:
                 ents.append("")
         new_doc = Doc(self.nlp.vocab, words=words, pos=pos, ents=ents)
+        new_doc._.metadata = doc._.metadata
         assert len(new_doc) == len(doc)
         for index, token in enumerate(doc):
-            new_doc[index]._.surface_form = token._.surface_form
             new_doc[index]._.ext = token._.ext
         return new_doc
 
@@ -267,18 +250,7 @@ class PreProcessingPipe:
         return token
 
 
-class PassThroughTokenizer:
-    """Used to bypass Spacy tokenizer"""
-
-    def __init__(self, vocab):
-        self.vocab = vocab
-
-    def __call__(self, tokens):
-        doc = Doc(self.vocab, words=tokens.split())
-        return doc
-
-
-def load_language_model(language, normalize_options: dict[str, Any]) -> Language:
+def load_language_model(language, normalize_options: dict[str, Any], text_object_type: str) -> Language:
     """Load language model based on name"""
     nlp = None
     language = language.lower()
@@ -303,7 +275,7 @@ def load_language_model(language, normalize_options: dict[str, Any]) -> Language
         if not normalize_options["ents_to_keep"]:
             diabled_pipelines.append("ner")
         model_loaded = ""
-        spacy.prefer_gpu()
+        # spacy.prefer_gpu()
         for model in possible_models:
             try:
                 nlp = spacy.load(model, exclude=diabled_pipelines)
@@ -320,19 +292,9 @@ def load_language_model(language, normalize_options: dict[str, Any]) -> Language
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
             print(f"There is no NER pipeline for model {model_loaded}. Exiting...")
             exit(-1)
+        # if text_object_type == "doc":
+        #     nlp.batch_size = 16
         return nlp
     nlp = spacy.blank("en")
     nlp.add_pipe("postprocessor", config=normalize_options, last=True)
     return nlp
-
-
-if __name__ == "__main__":
-    nlp = load_language_model(
-        "french",
-        {"pos_to_keep": ["NOUN", "ADJ"], "ents_to_keep": ["PER", "LOC"]},
-    )
-    import sys
-
-    doc = nlp(sys.argv[1])
-    for token in doc:
-        print(token._.surface_form, token.text)

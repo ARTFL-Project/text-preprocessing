@@ -139,13 +139,14 @@ class Tokens:
 
     def __get_tokens(self, doc: Doc):
         """Return a generator of PreprocessorToken objects"""
-        for token in doc:
+        max_index = len(doc) - 1
+        for index, token in enumerate(doc):
             if token.text != "#DEL#":
                 yield PreprocessorToken(token.text, token.pos_, token.ent_type_, token._.ext)
             elif self.keep_all is True:
                 yield PreprocessorToken("", token.pos_, token.ent_type_, token._.ext)
-                if token.whitespace_:
-                    yield PreprocessorToken(token.whitespace_, "", "", {"token": token.whitespace_})
+                if token.whitespace_ and index < max_index:  # remove trailing whitespace
+                    yield PreprocessorToken(token.whitespace_, "", "", {**token._.ext, "token": token.whitespace_})
 
     def __iter__(self) -> Iterator[PreprocessorToken]:
         for token in self.tokens:
@@ -267,7 +268,7 @@ class Tokens:
 
     def purge(self):
         """Remove empty tokens"""
-        self.tokens = deque(token for token in self.tokens if token)
+        self.tokens = deque(token for token in self.tokens if token.text and token.text != " ")
         self.length = len(self.tokens)
         if self.length:
             self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
@@ -331,6 +332,7 @@ class PreProcessor:
         pos_to_keep: list[str] | bool = False,
         ents_to_keep: list[str] | bool = False,
         post_processing_function: Callable | None = None,
+        nlp_model: Language | None = None,
         **_,  # this is meant to make the constructor accept invalid keywords
     ):
         self.normalize_options = {
@@ -348,7 +350,10 @@ class PreProcessor:
             "ents_to_keep": ents_to_keep or [],
         }
         self.language = language
-        self.nlp = load_language_model(self.language, self.normalize_options)
+        if nlp_model is not None:
+            self.nlp = nlp_model
+        else:
+            self.nlp = load_language_model(self.language, self.normalize_options)
         if workers is None:
             cpu_count = os.cpu_count() or 2
             self.workers = cpu_count - 1
@@ -414,7 +419,7 @@ class PreProcessor:
                     )
             if isinstance(tokens, PreparedDoc):
                 spacy_doc = make_spacy_doc(self.nlp, tokens)
-                if spacy_doc._.char_num > 10000:
+                if spacy_doc._.char_num > 100000:  # being conservative to preserve GPU RAM
                     split_doc = self.__split_spacy_docs(spacy_doc)
                     rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc)))
                     rebuilt_doc._.metadata = spacy_doc._.metadata

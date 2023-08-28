@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Text Preprocessor"""
 
-
 import json
 import os
 import sqlite3
 import sys
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Callable, DefaultDict, Deque, Iterable, Iterator, Union, overload
 
@@ -37,6 +37,17 @@ PHILO_TEXT_OBJECT_TYPE: dict[str, int] = {
 }
 
 PHILO_OBJECT_LEVEL: dict[int, str] = {1: "doc", 2: "div1", 3: "div2", 4: "div3", 5: "para", 6: "sent", 7: "word"}
+
+
+@dataclass(slots=True)
+class PreparedDoc:
+    """Prepared doc for conversion to Spacy Doc object"""
+
+    words: list[str]
+    sent_starts: list[bool]
+    metadata: dict[str, Any]
+    exts: list[dict[str, Any]]
+    char_num: int
 
 
 class PreprocessorToken(str):
@@ -337,7 +348,7 @@ class PreProcessor:
             "ents_to_keep": ents_to_keep or [],
         }
         self.language = language
-        self.nlp = load_language_model(self.language, self.normalize_options, text_object_type)
+        self.nlp = load_language_model(self.language, self.normalize_options)
         if workers is None:
             cpu_count = os.cpu_count() or 2
             self.workers = cpu_count - 1
@@ -390,17 +401,15 @@ class PreProcessor:
                     end="",
                     flush=True,
                 )
-            if isinstance(tokens, Doc):
-                if self.text_fetcher.text_object_type in ("sent", "para"):
-                    tokens = Tokens(tokens, keep_all=keep_all)
+            if isinstance(tokens, PreparedDoc):
+                spacy_doc = make_spacy_doc(self.nlp, tokens)
+                if spacy_doc._.char_num > 10000:
+                    split_doc = self.__split_spacy_docs(spacy_doc)
+                    rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc)))
+                    rebuilt_doc._.metadata = spacy_doc._.metadata
+                    tokens = Tokens(rebuilt_doc, keep_all=keep_all)
                 else:
-                    if tokens._.char_num > 10000:
-                        split_doc = self.__split_spacy_docs(tokens)
-                        rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc)))
-                        rebuilt_doc._.metadata = tokens._.metadata
-                        tokens = Tokens(rebuilt_doc, keep_all=keep_all)
-                    else:
-                        tokens = Tokens(self.nlp(tokens), keep_all=keep_all)
+                    tokens = Tokens(self.nlp(spacy_doc), keep_all=keep_all)
                 if self.ngram_config is not None:
                     tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
                 if self.post_func is not None:
@@ -416,11 +425,11 @@ class PreProcessor:
         return Tokens(processed_doc, keep_all=keep_all)
 
     def __split_spacy_docs(self, doc: Doc) -> list[Doc]:
-        """Split spacy doc into smaller docs of 50 sentences"""
+        """Split spacy doc into smaller docs of 10 sentences"""
         sentence_group: list[Doc] = []
         docs: list[Doc] = []
         for sent in doc.sents:
-            if len(sentence_group) == 50:
+            if len(sentence_group) == 10:
                 docs.append(Doc.from_docs(sentence_group))
                 sentence_group = []
             else:
@@ -495,7 +504,7 @@ class TextFetcher:
         keep_all=False,
         progress: bool = True,
         post_func: Callable | None = None,
-    ) -> Iterable[tuple[Doc | Tokens, int]]:
+    ) -> Iterable[tuple[PreparedDoc | Tokens, int]]:
         """Process all documents. Returns an iterator of documents"""
         doc_count: int = 0
         if progress is True:
@@ -510,15 +519,16 @@ class TextFetcher:
                     yield doc, doc_count
 
     @classmethod
-    def __local_process(cls, args) -> Iterable[Doc | Tokens]:
+    def __local_process(cls, args) -> Iterable[PreparedDoc | Tokens]:
         text, do_nlp, keep_all, post_func = args
         if cls.is_philo_db is True:
             text_objects, sent_starts_list, metadata = cls.process_philo_text(text)
         else:
             text_objects, sent_starts_list, metadata = cls.process_text(text)
-        spacy_docs = cls.__make_spacy_doc(text_objects, sent_starts_list, metadata)
+        docs = cls.__prepare_docs(text_objects, sent_starts_list, metadata)
         if do_nlp is True:
-            return list(spacy_docs)
+            return docs
+        spacy_docs = (make_spacy_doc(cls.model, doc) for doc in docs)
         tokens_list: list[Tokens] = []
         for spacy_doc in spacy_docs:
             tokens = Tokens(cls.model(spacy_doc), keep_all=keep_all)
@@ -530,20 +540,19 @@ class TextFetcher:
         return tokens_list
 
     @classmethod
-    def __make_spacy_doc(cls, text_objects, sent_starts_list, metadata) -> Iterable[Doc]:
-        """Make spacy doc from list of tokens"""
+    def __prepare_docs(cls, text_objects, sent_starts_list, metadata) -> list[PreparedDoc]:
+        """Prepare doc for creating Spacy doc"""
+        list_doc_words: list[PreparedDoc] = []
         for processed_doc, sent_starts, local_metadata in zip(text_objects, sent_starts_list, metadata):
             words = []
+            exts = []
             char_num = 0
-            for word, _ in processed_doc:
+            for word, ext in processed_doc:
                 char_num += len(word)
                 words.append(word)
-            doc = Doc(cls.model.vocab, words, sent_starts=sent_starts)
-            doc._.metadata = local_metadata
-            doc._.char_num = char_num
-            for pos, (_, ext) in enumerate(processed_doc):
-                doc[pos]._.ext = ext
-            yield doc
+                exts.append(ext)
+            list_doc_words.append(PreparedDoc(words, sent_starts, local_metadata, exts, char_num))
+        return list_doc_words
 
     @classmethod
     def process_text(cls, text: str):
@@ -731,6 +740,16 @@ def recursive_search(
         object_id.pop()
         object_level -= 1
     return obj_metadata, metadata_cache
+
+
+def make_spacy_doc(model: Language, prepared_doc: PreparedDoc) -> Doc:
+    """Make Spacy doc"""
+    doc = Doc(model.vocab, prepared_doc.words, sent_starts=prepared_doc.sent_starts)
+    doc._.metadata = prepared_doc.metadata
+    doc._.char_num = prepared_doc.char_num
+    for pos, ext in enumerate(prepared_doc.exts):
+        doc[pos]._.ext = ext
+    return doc
 
 
 def main():

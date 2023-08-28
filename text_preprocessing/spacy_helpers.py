@@ -11,6 +11,8 @@ from xml.sax.saxutils import unescape as unescape_xml
 import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Token
+from thinc.api import set_gpu_allocator, prefer_gpu
+
 from Stemmer import Stemmer
 from unidecode import unidecode
 
@@ -250,7 +252,7 @@ class PreProcessingPipe:
         return token
 
 
-def load_language_model(language, normalize_options: dict[str, Any], text_object_type: str) -> Language:
+def load_language_model(language, normalize_options: dict[str, Any]) -> Language:
     """Load language model based on name"""
     nlp = None
     language = language.lower()
@@ -275,7 +277,8 @@ def load_language_model(language, normalize_options: dict[str, Any], text_object
         if not normalize_options["ents_to_keep"]:
             diabled_pipelines.append("ner")
         model_loaded = ""
-        # spacy.prefer_gpu()
+        set_gpu_allocator("pytorch")
+        prefer_gpu()
         for model in possible_models:
             try:
                 nlp = spacy.load(model, exclude=diabled_pipelines)
@@ -292,8 +295,6 @@ def load_language_model(language, normalize_options: dict[str, Any], text_object
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
             print(f"There is no NER pipeline for model {model_loaded}. Exiting...")
             exit(-1)
-        # if text_object_type == "doc":
-        #     nlp.batch_size = 16
         return nlp
     nlp = spacy.blank("en")
     nlp.add_pipe("postprocessor", config=normalize_options, last=True)

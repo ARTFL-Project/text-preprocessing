@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Text Preprocessor"""
 
-import json
 import os
 import sqlite3
 import sys
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Any, Callable, DefaultDict, Deque, Iterable, Iterator, Union, overload
+from typing import Any, Callable, DefaultDict, Deque, Iterable
 
 import lz4.frame
 import orjson
@@ -18,7 +17,7 @@ from spacy.language import Language
 from spacy.tokens import Doc, Token
 
 from .modernizer import Modernizer
-from .spacy_helpers import load_language_model
+from .spacy_helpers import load_language_model, Tokens, PreprocessorToken
 
 Doc.set_extension("metadata", default={})
 Doc.set_extension("char_num", default=0)
@@ -48,260 +47,6 @@ class PreparedDoc:
     metadata: dict[str, Any]
     exts: list[dict[str, Any]]
     char_num: int
-
-
-class PreprocessorToken(str):
-    """Token Object class inheriting from string
-
-    Args:
-        text: a string value
-        surface_form: surface form to be changed. Defaults to text if none given
-        pos_: a string value describing part-of-speech
-        ext: a dictionary containing additional metadata
-
-    Attributes:
-        text: a string value
-        surface_form: surface form to be changed. Defaults to text if none given
-        pos_: a string value describing part-of-speech
-        ext: a dictionary containing additional metadata
-
-    """
-
-    ext: dict[str, Any]
-
-    def __new__(cls, value, pos_="", ent="", ext={}):
-        return str.__new__(cls, value)
-
-    def __init__(
-        self,
-        text: str,
-        pos_: str = "",
-        ent: str = "",
-        ext: dict[str, Any] | None = None,
-    ):
-        self.text = text or ""
-        self.ext = ext or {}
-        if self.ext is not None:
-            self.surface_form = ext["token"]
-        else:
-            self.surface_form = text
-        self.ext["pos"] = pos_
-        self.pos_ = pos_
-        self.ent = ent
-
-    def __hash__(self):
-        return hash(self.text)
-
-    def __eq__(self, other) -> bool:
-        if isinstance(other, PreprocessorToken):
-            return self.text == other.text
-        return self.text == other
-
-    def __str__(self) -> str:
-        return self.text
-
-    def __call__(self):
-        return self
-
-    def __repr__(self) -> str:
-        return f"text={repr(self.text)}, surface_form={repr(self.surface_form)}, pos={self.pos_}, ext={repr(self.ext)}"
-
-    def __add__(self, other) -> str:
-        return self.text + other
-
-
-class Tokens:
-    """Tokens object contains a list of tokens as well as metadata
-
-    Args:
-        tokens: a list of Token objects
-        metadata: a dict containing metadata
-
-    Attributes:
-        tokens: a list of Token ojects
-        metadata: a dict containing metadata
-        length: length of Tokens.tokens
-
-    """
-
-    def __init__(self, doc: Doc | Iterable[PreprocessorToken], metadata=None, keep_all=False):
-        self.keep_all = keep_all
-        if isinstance(doc, Doc):
-            self.tokens: Deque[PreprocessorToken] = Deque(self.__get_tokens(doc))
-        else:
-            self.tokens = Deque(doc)
-        if metadata is None:
-            self.metadata: dict[str, Any] = doc._.metadata  # type: ignore
-        else:
-            self.metadata = metadata
-        self.length: int = len(self.tokens)
-        self.iter_index = 0
-
-    def __get_tokens(self, doc: Doc):
-        """Return a generator of PreprocessorToken objects"""
-        max_index = len(doc) - 1
-        for index, token in enumerate(doc):
-            if token.text != "#DEL#":
-                yield PreprocessorToken(token.text, token.pos_, token.ent_type_, token._.ext)
-            elif self.keep_all is True:
-                yield PreprocessorToken("", token.pos_, token.ent_type_, token._.ext)
-                if token.whitespace_ and index < max_index:  # remove trailing whitespace
-                    yield PreprocessorToken(token.whitespace_, "", "", {**token._.ext, "token": token.whitespace_})
-
-    def __iter__(self) -> Iterator[PreprocessorToken]:
-        for token in self.tokens:
-            yield token
-
-    def __next__(self):
-        self.iter_index += 1
-        if self.iter_index < self.length:
-            return self.tokens[self.iter_index]
-        else:
-            raise IndexError
-
-    @overload
-    def __getitem__(self, index: int) -> PreprocessorToken:
-        ...
-
-    @overload
-    def __getitem__(self, index: slice) -> Iterable[PreprocessorToken]:
-        ...
-
-    def __getitem__(self, index: Union[int, slice]) -> Union[PreprocessorToken, Iterable[PreprocessorToken]]:
-        if isinstance(index, int):
-            return self.tokens[index]
-        elif isinstance(index, slice):
-            return Tokens(list(self.tokens)[index], self.metadata)
-        else:
-            print(f"{repr(index)} of type {type(index)} is not an index or slice")
-            raise TypeError
-
-    def __len__(self) -> int:
-        return self.length
-
-    def __bool__(self) -> bool:
-        if self.length == 0:
-            return False
-        return True
-
-    def __repr__(self):
-        return repr([repr(t) for t in self.tokens])
-
-    def __str__(self):
-        return repr([str(t) for t in self.tokens])
-
-    def split_tokens(self, n: int) -> Iterator["Tokens"]:
-        """Divide Tokens in to smaller Tokens of n length
-
-        Args:
-            n: split Tokens obj into a list of Tokens of length n
-
-        Returns:
-            A Iterator of Tokens
-
-        """
-        max_index: int = self.length - 1
-        for i in range(0, len(self), n):
-            end: int = i + n
-            if end > max_index:
-                metadata: dict[str, Any] = {
-                    **self.metadata,
-                    "start_byte": self[i].ext["start_byte"],
-                    "end_byte": self[max_index].ext["end_byte"],
-                }
-                yield Tokens(self[i:max_index], metadata)
-            else:
-                metadata = {
-                    **self.metadata,
-                    "start_byte": self[i].ext["start_byte"],
-                    "end_byte": self[end - 1].ext["end_byte"],
-                }
-                yield Tokens(self[i:end], metadata)
-
-    def extend(self, tokens) -> None:
-        """Extend size of Tokens"""
-        self.tokens.extend(tokens)
-        if not self.metadata:
-            self.metadata = tokens.metadata
-        self.metadata["end_byte"] = tokens.metadata["end_byte"]
-
-    def pop(self) -> PreprocessorToken | None:
-        """Remove last token from self.tokens"""
-        if self.tokens:
-            token = self.tokens.pop()
-            try:
-                self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
-                self.length -= 1
-                return token
-            except IndexError:
-                self.length = 0
-            return token
-        return None
-
-    def popleft(self) -> PreprocessorToken | None:
-        """Remove first token from self.tokens"""
-        if self.tokens:
-            token = self.tokens.popleft()
-            try:
-                self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
-                self.length -= 1
-            except IndexError:
-                self.length = 0
-            return token
-        return None
-
-    def append(self, token: PreprocessorToken):
-        """Append Token"""
-        if not self.tokens:
-            self.metadata["start_byte"] = token.ext["start_byte"]
-        self.tokens.append(token)
-        self.metadata["end_byte"] = token.ext["end_byte"]
-        self.length += 1
-
-    def appendleft(self, token: PreprocessorToken):
-        """Append Token to the left of tokens"""
-        if not self.tokens:
-            self.metadata["end_byte"] = token.ext["end_byte"]
-        self.tokens.appendleft(token)
-        self.metadata["start_byte"] = token.ext["start_byte"]
-        self.length += 1
-
-    def purge(self):
-        """Remove empty tokens"""
-        self.tokens = deque(token for token in self.tokens if token.text and token.text != " ")
-        self.length = len(self.tokens)
-        if self.length:
-            self.metadata["start_byte"] = self.tokens[0].ext["start_byte"]
-            self.metadata["end_byte"] = self.tokens[-1].ext["end_byte"]
-        else:
-            self.metadata["start_byte"] = 0
-            self.metadata["end_byte"] = 0
-
-    def save(self, path):
-        """Save Tokens to disk"""
-        tokens_to_serialize = {"tokens": [], "metadata": self.metadata}
-        for token in self:
-            tokens_to_serialize["tokens"].append((token.text, token.surface_form, token.pos_, token.ext))
-        with open(path, "w", encoding="utf8") as output:
-            json.dump(tokens_to_serialize, output)
-
-    def load(self, path):
-        """Load tokens from disk"""
-        with open(path, "r", encoding="utf8") as input_file:
-            tokens = json.load(input_file)
-        self.metadata = tokens["metadata"]
-        self.tokens = deque(PreprocessorToken(t[0], t[1], t[2], t[3]) for t in tokens["tokens"])
-
-
-def chunks(l, n):
-    """Yield n number of sequential chunks from l."""
-    l = list(l)
-    d, r = divmod(len(l), n)
-    for i in range(n):
-        si = (d + 1) * (i if i < r else r) + d * (0 if i < r else i - r)
-        result = l[si : si + (d + 1 if i < r else d)]
-        if result:
-            yield result
 
 
 class PreProcessor:
@@ -400,7 +145,9 @@ class PreProcessor:
         )
         if self.text_fetcher.text_object_type in ("para", "sent"):
             fetched_texts = self.nlp.pipe(
-                ((make_spacy_doc(self.nlp, tokens), c) for tokens, c in fetched_texts), as_tuples=True
+                ((make_spacy_doc(self.nlp, tokens), c) for tokens, c in fetched_texts),
+                as_tuples=True,
+                batch_size=500,
             )
         for tokens, doc_count in fetched_texts:
             count += 1
@@ -421,7 +168,7 @@ class PreProcessor:
                 spacy_doc = make_spacy_doc(self.nlp, tokens)
                 if spacy_doc._.char_num > 100000:  # being conservative to preserve GPU RAM
                     split_doc = self.__split_spacy_docs(spacy_doc)
-                    rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc)))
+                    rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc, batch_size=128)))
                     rebuilt_doc._.metadata = spacy_doc._.metadata
                     tokens = Tokens(rebuilt_doc, keep_all=keep_all)
                 else:

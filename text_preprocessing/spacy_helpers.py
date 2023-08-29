@@ -457,7 +457,7 @@ class PreProcessingPipe:
             if not normalized_text:
                 normalized_text = "#DEL#"
             token.text = normalized_text
-            new_tokens.append(tokens)
+            new_tokens.append(token)
         return Tokens(new_tokens, tokens.metadata)
 
     def __filter_token(self, token: Token | PreprocessorToken) -> bool:

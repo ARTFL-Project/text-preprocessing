@@ -216,7 +216,7 @@ class Tokens:
 
     def extend(self, tokens) -> None:
         """Extend size of Tokens"""
-        self.tokens.extend(tokens)
+        self.tokens.extend(tokens.tokens)
         if not self.metadata:
             self.metadata = tokens.metadata
         self.metadata["end_byte"] = tokens.metadata["end_byte"]
@@ -284,7 +284,7 @@ class Tokens:
         """Load tokens from disk"""
         with open(path, "rb") as input_file:
             tokens = pickle.load(input_file)
-        return cls(tokens["tokens"], tokens["metadata"])
+        return Tokens(tokens["tokens"], tokens["metadata"])
 
 
 def check_for_updates(language) -> List[str]:
@@ -451,11 +451,11 @@ class PreProcessingPipe:
         new_tokens = []
         for token in tokens:
             if self.__filter_token(token) is True:
-                normalized_text = "#DEL#"
+                normalized_text = ""
             else:
                 normalized_text = self.__normalize_token(token)
-            if not normalized_text:
-                normalized_text = "#DEL#"
+                if normalized_text == "#DEL#":
+                    normalized_text = ""
             token.text = normalized_text
             new_tokens.append(token)
         return Tokens(new_tokens, tokens.metadata)

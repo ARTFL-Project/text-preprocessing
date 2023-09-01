@@ -382,10 +382,17 @@ class TextFetcher:
         sent_id: str | None = None
         sent_starts_list: list[list[bool]] = []
         sent_starts: list[bool] = []
+        current_sent_id: str = ""
         with open_file(text) as philo_db_text:
             for line in philo_db_text:
                 word_obj: dict[str, Any] = orjson.loads(line.strip())
-                philo_id = word_obj["position"].split()
+                if (
+                    word_obj["philo_type"] == "punct" and current_sent_id
+                ):  # workaround for bug in Philo4 parser where punctuation is assigned to wrong sentence
+                    philo_id = current_sent_id.split()
+                    word_obj["position"] = current_sent_id + " 0"
+                else:
+                    philo_id = word_obj["position"].split()
                 object_id = " ".join(philo_id[: PHILO_TEXT_OBJECT_TYPE[cls.text_object_type]])
                 current_sent_id = " ".join(philo_id[: PHILO_TEXT_OBJECT_TYPE["sent"]])
                 if current_object_id == "":
@@ -406,6 +413,8 @@ class TextFetcher:
                                     current_text_object[0][1]["position"].split()[:6] + ["0"]
                                 )
                                 obj_metadata["philo_type"] = "sent"
+                                obj_metadata["start_byte"] = current_text_object[0][1]["start_byte"]
+                                obj_metadata["end_byte"] = current_text_object[-1][1]["end_byte"]
                             metadata.append(obj_metadata)
                         else:
                             metadata.append(os.path.basename(text))
@@ -436,6 +445,8 @@ class TextFetcher:
                 if cls.text_object_type == "sent":
                     obj_metadata["philo_id"] = " ".join(current_text_object[0][1]["position"].split()[:6] + ["0"])
                     obj_metadata["philo_type"] = "sent"
+                    obj_metadata["start_byte"] = current_text_object[0][1]["start_byte"]
+                    obj_metadata["end_byte"] = current_text_object[-1][1]["end_byte"]
                 metadata.append(obj_metadata)
             docs.append(current_text_object)
             sent_starts_list.append(sent_starts)

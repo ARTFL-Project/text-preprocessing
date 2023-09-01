@@ -401,6 +401,11 @@ class TextFetcher:
                                 text_path,
                                 text,
                             )
+                            if cls.text_object_type == "sent":
+                                obj_metadata["philo_id"] = " ".join(
+                                    current_text_object[0][1]["position"].split()[:6] + ["0"]
+                                )
+                                obj_metadata["philo_type"] = "sent"
                             metadata.append(obj_metadata)
                         else:
                             metadata.append(os.path.basename(text))
@@ -428,6 +433,9 @@ class TextFetcher:
                     text_path,
                     text,
                 )
+                if cls.text_object_type == "sent":
+                    obj_metadata["philo_id"] = " ".join(current_text_object[0][1]["position"].split()[:6] + ["0"])
+                    obj_metadata["philo_type"] = "sent"
                 metadata.append(obj_metadata)
             docs.append(current_text_object)
             sent_starts_list.append(sent_starts)

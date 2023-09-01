@@ -1,7 +1,6 @@
 """Helper functions for Spacy"""
 
 import os
-import pickle
 import re
 import sys
 import unicodedata
@@ -10,13 +9,13 @@ from html import unescape as unescape_html
 from typing import Any, Dict, Iterable, List, Optional, Union
 from xml.sax.saxutils import unescape as unescape_xml
 
+import pickle
 import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Token
 from Stemmer import Stemmer
 from thinc.api import prefer_gpu, set_gpu_allocator
 from unidecode import unidecode
-
 
 # Updated as of 8/23/2022
 SPACY_LANGUAGE_MODEL_MAP: Dict[str, List[str]] = {
@@ -71,8 +70,6 @@ class PreprocessorToken(str):
 
     """
 
-    ext: dict[str, Any]
-
     def __new__(cls, value, pos_="", ent_type_="", ext={}):
         return str.__new__(cls, value)
 
@@ -83,6 +80,7 @@ class PreprocessorToken(str):
         ent_type_: str = "",
         ext: dict[str, Any] | None = None,
     ):
+        super().__init__()
         self.text = text or ""
         self.ext = ext or {}
         if self.ext is not None:
@@ -149,8 +147,8 @@ class Tokens:
                 yield PreprocessorToken(token.text, token.pos_, token.ent_type_, token._.ext)
             elif self.keep_all is True:
                 yield PreprocessorToken("", token.pos_, token.ent_type_, token._.ext)
-                if token.whitespace_ and index < max_index:  # remove trailing whitespace
-                    yield PreprocessorToken(token.whitespace_, "", "", {**token._.ext, "token": token.whitespace_})
+            if token.whitespace_ and index < max_index:  # remove trailing whitespace
+                yield PreprocessorToken(token.whitespace_, "", "", {**token._.ext, "token": token.whitespace_})
 
     def __iter__(self) -> Iterable[PreprocessorToken]:
         for token in self.tokens:

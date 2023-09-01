@@ -143,7 +143,7 @@ class PreProcessor:
         fetched_texts = self.text_fetcher(
             texts, do_nlp=self.do_nlp, keep_all=keep_all, progress=progress, post_func=self.post_func
         )
-        if self.text_fetcher.text_object_type in ("para", "sent"):
+        if self.text_fetcher.text_object_type in ("para", "sent") and self.do_nlp is True:
             fetched_texts = self.nlp.pipe(
                 ((make_spacy_doc(self.nlp, tokens), c) for tokens, c in fetched_texts),
                 as_tuples=True,

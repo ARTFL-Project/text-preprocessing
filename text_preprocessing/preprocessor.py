@@ -126,7 +126,7 @@ class PreProcessor:
             ngram_config=self.ngram_config,
             workers=workers,
         )
-        if self.normalize_options["pos_to_keep"] or self.normalize_options["ents_to_keep"]:
+        if self.normalize_options["pos_to_keep"] or self.normalize_options["ents_to_keep"] or lemmatizer == "spacy":
             self.do_nlp = True
         else:
             self.do_nlp = False
@@ -461,6 +461,7 @@ def generate_ngrams(ngram_size: int, ngram_window: int, ngram_word_order: bool, 
     ngrams: list[PreprocessorToken] = []
     ngram: Deque[PreprocessorToken] = deque()
     ngram_text: str
+    tokens.purge()  # remove empty tokens
     for token in tokens:
         ngram.append(token)
         if len(ngram) == ngram_window:

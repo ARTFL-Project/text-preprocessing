@@ -502,6 +502,14 @@ class PreProcessingPipe:
         return token
 
 
+@Language.component("clear_trf_data")
+def clear_trf_data(doc):
+    """Clear the cache of a doc to free GPU memory"""
+    if hasattr(doc._, "trf_data"):
+        doc._.trf_data = None
+    return doc
+
+
 def load_language_model(language, normalize_options: dict[str, Any]) -> Language:
     """Load language model based on name"""
     nlp = None
@@ -521,17 +529,17 @@ def load_language_model(language, normalize_options: dict[str, Any]) -> Language
             normalize_options["ents_to_keep"],
         )
     ):
-        diabled_pipelines = ["tokenizer", "textcat"]
+        disabled_pipelines = ["tokenizer", "textcat"]
         if not normalize_options["pos_to_keep"]:
-            diabled_pipelines.append("tagger")
+            disabled_pipelines.append("tagger")
         if not normalize_options["ents_to_keep"]:
-            diabled_pipelines.append("ner")
+            disabled_pipelines.append("ner")
         model_loaded = ""
         set_gpu_allocator("pytorch")
-        prefer_gpu()
+        use_gpu = prefer_gpu()
         for model in possible_models:
             try:
-                nlp = spacy.load(model, exclude=diabled_pipelines)
+                nlp = spacy.load(model, exclude=disabled_pipelines)
                 print("Using Spacy model", model)
             except OSError:
                 pass
@@ -541,6 +549,8 @@ def load_language_model(language, normalize_options: dict[str, Any]) -> Language
         if nlp is None:
             print(f"No Spacy model installed for the {language} language. Stopping...")
             exit(-1)
+        if use_gpu is True:
+            nlp.add_pipe("clear_trf_data", last=True)
         nlp.add_pipe("postprocessor", config=normalize_options, last=True)
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
             print(f"There is no NER pipeline for model {model_loaded}. Exiting...")

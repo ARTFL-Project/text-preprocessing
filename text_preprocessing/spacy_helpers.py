@@ -142,13 +142,17 @@ class Tokens:
     def __get_tokens(self, doc: Doc):
         """Return a generator of PreprocessorToken objects"""
         max_index = len(doc) - 1
+        word_before = False
         for index, token in enumerate(doc):
             if token.text != "#DEL#":
                 yield PreprocessorToken(token.text, token.pos_, token.ent_type_, token._.ext)
+                word_before = True
             elif self.keep_all is True:
                 yield PreprocessorToken("", token.pos_, token.ent_type_, token._.ext)
-            if token.whitespace_ and index < max_index:  # remove trailing whitespace
+                word_before = True
+            if all((token.whitespace_, word_before, index < max_index)):  # keep whitespace except at the very end
                 yield PreprocessorToken(token.whitespace_, "", "", {**token._.ext, "token": token.whitespace_})
+                word_before = False
 
     def __iter__(self) -> Iterable[PreprocessorToken]:
         for token in self.tokens:
@@ -165,7 +169,20 @@ class Tokens:
         if isinstance(index, int):
             return self.tokens[index]
         elif isinstance(index, slice):
-            return Tokens(list(self.tokens)[index], self.metadata)
+            tokens = list(self.tokens)[index]
+            if tokens:
+                metadata = {
+                    **self.metadata,
+                    "start_byte": tokens[0].ext["start_byte"],
+                    "end_byte": tokens[-1].ext["end_byte"],
+                }
+            else:
+                metadata = {
+                    **self.metadata,
+                    "start_byte": 0,
+                    "end_byte": 0,
+                }
+            return Tokens(tokens, metadata)
         else:
             print(f"{repr(index)} of type {type(index)} is not an index or slice")
             raise TypeError
@@ -215,6 +232,7 @@ class Tokens:
     def extend(self, tokens) -> None:
         """Extend size of Tokens"""
         self.tokens.extend(tokens.tokens)
+        self.length = len(self.tokens)
         if not self.metadata:
             self.metadata = tokens.metadata
         self.metadata["end_byte"] = tokens.metadata["end_byte"]

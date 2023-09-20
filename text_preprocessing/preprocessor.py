@@ -383,6 +383,7 @@ class TextFetcher:
         sent_starts_list: list[list[bool]] = []
         sent_starts: list[bool] = []
         current_sent_id: str = ""
+        word_count = 0
         with open_file(text) as philo_db_text:
             for line in philo_db_text:
                 word_obj: dict[str, Any] = orjson.loads(line.strip())
@@ -409,12 +410,14 @@ class TextFetcher:
                                 text,
                             )
                             if cls.text_object_type == "sent":
-                                obj_metadata["philo_id"] = " ".join(
-                                    current_text_object[0][1]["position"].split()[:6] + ["0"]
-                                )
-                                obj_metadata["philo_type"] = "sent"
-                                obj_metadata["start_byte"] = current_text_object[0][1]["start_byte"]
-                                obj_metadata["end_byte"] = current_text_object[-1][1]["end_byte"]
+                                obj_metadata = {
+                                    **obj_metadata,
+                                    "philo_id": " ".join(current_text_object[0][1]["position"].split()[:6] + ["0"]),
+                                    "philo_type": "sent",
+                                    "start_byte": current_text_object[0][1]["start_byte"],
+                                    "end_byte": current_text_object[-1][1]["end_byte"],
+                                    "word_count": word_count,
+                                }
                             metadata.append(obj_metadata)
                         else:
                             metadata.append(os.path.basename(text))
@@ -422,6 +425,7 @@ class TextFetcher:
                         sent_starts_list.append(sent_starts)
                         sent_starts = []
                         current_text_object = []
+                        word_count = 0
                     current_object_id = object_id
                 if current_sent_id == sent_id:
                     sent_starts.append(False)
@@ -429,8 +433,10 @@ class TextFetcher:
                     sent_starts.append(True)
                 if cls.modernize is not False:
                     current_text_object.append((cls.modernize(word_obj["token"]), word_obj))  # type: ignore
+                    word_count += 1
                 else:
                     current_text_object.append((word_obj["token"], word_obj))
+                    word_count += 1
                 sent_id = " ".join(philo_id[: PHILO_TEXT_OBJECT_TYPE["sent"]])
         if current_text_object:
             if fetch_metadata is True:

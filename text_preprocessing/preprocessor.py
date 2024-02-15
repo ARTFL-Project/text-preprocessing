@@ -83,7 +83,7 @@ class PreProcessor:
         self.normalize_options = {
             "language": language,
             "stemmer": stemmer,
-            "stopwords": stopwords,
+            "stopwords": stopwords or False,  # None is not allowable so set to False
             "strip_punctuation": strip_punctuation,
             "strip_numbers": strip_numbers,
             "lowercase": lowercase,

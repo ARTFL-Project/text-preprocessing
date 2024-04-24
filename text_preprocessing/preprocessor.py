@@ -17,7 +17,7 @@ from spacy.language import Language
 from spacy.tokens import Doc, Token
 
 from .modernizer import Modernizer
-from .spacy_helpers import load_language_model, Tokens, PreprocessorToken
+from .spacy_helpers import PreprocessorToken, Tokens, load_language_model
 
 Doc.set_extension("metadata", default={})
 Doc.set_extension("char_num", default=0)
@@ -176,8 +176,8 @@ class PreProcessor:
                 if self.ngram_config is not None:
                     tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
                 if self.post_func is not None:
-                    processed_doc = self.post_func(tokens)
-                    yield processed_doc
+                    tokens = self.post_func(tokens)
+                yield tokens
             elif isinstance(tokens, Doc):
                 tokens = Tokens(tokens, keep_all=keep_all)
                 if self.ngram_config is not None:

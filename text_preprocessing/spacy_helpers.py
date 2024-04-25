@@ -1,6 +1,7 @@
 """Helper functions for Spacy"""
 
 import os
+import pickle
 import re
 import sys
 import unicodedata
@@ -9,7 +10,6 @@ from html import unescape as unescape_html
 from typing import Any, Dict, Iterable, List, Optional, Union
 from xml.sax.saxutils import unescape as unescape_xml
 
-import pickle
 import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Token
@@ -528,7 +528,7 @@ def clear_trf_data(doc):
     return doc
 
 
-def load_language_model(language, normalize_options: dict[str, Any]) -> Language:
+def load_language_model(language, normalize_options: dict[str, Any]) -> tuple[Language, bool]:
     """Load language model based on name"""
     nlp = None
     language = language.lower()
@@ -573,7 +573,7 @@ def load_language_model(language, normalize_options: dict[str, Any]) -> Language
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
             print(f"There is no NER pipeline for model {model_loaded}. Exiting...")
             exit(-1)
-        return nlp
+        return nlp, use_gpu
     nlp = spacy.blank("en")
     nlp.add_pipe("postprocessor", config=normalize_options, last=True)
-    return nlp
+    return nlp, False

@@ -98,12 +98,14 @@ class PreProcessor:
         if nlp_model is not None:
             self.nlp = nlp_model
         else:
-            self.nlp = load_language_model(self.language, self.normalize_options)
+            self.nlp, using_gpu = load_language_model(self.language, self.normalize_options)
         if workers is None:
             cpu_count = os.cpu_count() or 2
             self.workers = cpu_count - 1
         else:
             self.workers = workers
+        if using_gpu is True:
+            self.workers = 1
         ngrams = ngrams or 0
         if ngrams:
             self.ngram_config = {
@@ -124,7 +126,7 @@ class PreProcessor:
             is_philo_db=is_philo_db,
             text_object_type=text_object_type,
             ngram_config=self.ngram_config,
-            workers=workers,
+            workers=self.workers,
         )
         if self.normalize_options["pos_to_keep"] or self.normalize_options["ents_to_keep"] or lemmatizer == "spacy":
             self.do_nlp = True

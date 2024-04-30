@@ -78,6 +78,7 @@ class PreProcessor:
         ents_to_keep: list[str] | bool = False,
         post_processing_function: Callable | None = None,
         nlp_model: Language | None = None,
+        using_gpu: bool = False,
         **_,  # this is meant to make the constructor accept invalid keywords
     ):
         self.normalize_options = {
@@ -95,16 +96,18 @@ class PreProcessor:
             "ents_to_keep": ents_to_keep or [],
         }
         self.language = language
+        self.using_gpu = using_gpu
         if nlp_model is not None:
             self.nlp = nlp_model
         else:
             self.nlp, using_gpu = load_language_model(self.language, self.normalize_options)
+            self.using_gpu = using_gpu
         if workers is None:
             cpu_count = os.cpu_count() or 2
             self.workers = cpu_count - 1
         else:
             self.workers = workers
-        if using_gpu is True:
+        if self.using_gpu is True:
             self.workers = 1
         ngrams = ngrams or 0
         if ngrams:

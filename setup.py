@@ -17,6 +17,7 @@ setup(
         "requests",
         "lz4",
         "regex",
+        "torch",
         "multiprocess",
     ],
 )

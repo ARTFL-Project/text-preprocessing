@@ -17,35 +17,6 @@ from Stemmer import Stemmer
 from thinc.api import prefer_gpu, set_gpu_allocator
 from unidecode import unidecode
 
-# Updated as of 8/23/2022
-SPACY_LANGUAGE_MODEL_MAP: Dict[str, List[str]] = {
-    "catalan": ["ca_core_news_sm", "ca_core_news_md", "ca_core_news_lg", "ca_core_news_trf"],
-    "chinese": ["zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg", "zh_core_web_trf"],
-    "croation": ["hr_core_news_sm", "hr_core_news_md", "hr_core_news_lg"],
-    "danish": ["da_core_news_sm", "da_core_news_md", "da_core_news_lg"],
-    "dutch": ["nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"],
-    "english": ["en_core_web_sm", "en_core_web_md", "en_core_web_lg", "en_core_web_trf"],
-    "finnish": ["fi_core_news_sm", "fi_core_news_md", "fi_core_news_lg"],
-    "german": ["de_core_news_sm", "de_core_news_md", "de_core_news_lg", "de_dep_news_trf"],
-    "greek": ["el_core_news_sm", "el_core_news_md", "el_core_news_lg"],
-    "french": ["fr_core_news_sm", "fr_core_news_md", "fr_core_news_lg", "fr_dep_news_trf"],
-    "italian": ["it_core_news_sm", "it_core_news_md", "it_core_news_lg"],
-    "japanese": ["ja_core_news_sm", "ja_core_news_md", "ja_core_news_lg"],
-    "korean": ["ko_core_news_sm", "ko_core_news_md", "ko_core_news_lg"],
-    "lithuanian": ["lt_core_news_sm", "lt_core_news_md", "lt_core_news_lg"],
-    "macedonian": ["mk_core_news_sm", "mk_core_news_md", "mk_core_news_lg"],
-    "norwegian": ["nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"],
-    "polish": ["pl_core_news_sm", "pl_core_news_md", "pl_core_news_lg"],
-    "portuguese": ["pt_core_news_sm", "pt_core_news_md", "pt_core_news_lg"],
-    "romanian": ["ro_core_news_sm", "ro_core_news_md", "ro_core_news_lg"],
-    "russian": ["ru_core_news_sm", "ru_core_news_md", "ru_core_news_lg"],
-    "spanish": ["es_core_news_sm", "es_core_news_md", "es_core_news_lg", "es_dep_news_trf"],
-    "swedish": ["sv_core_news_sm", "sv_core_news_md", "sv_core_news_lg"],
-    "ukrainian": ["uk_core_news_sm", "uk_core_news_md", "uk_core_news_lg"],
-    "multi-language": ["xx_ent_wiki_sm", "xx_sent_ud_sm"],
-}
-
-
 PUNCTUATION_MAP = dict.fromkeys(i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P"))
 PUNCTUATION_CLASS = set([chr(i) for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith("P")])
 NUMBERS = re.compile(r"\d")
@@ -303,24 +274,6 @@ class Tokens:
         return Tokens(tokens["tokens"], tokens["metadata"])
 
 
-def check_for_updates(language) -> List[str]:
-    """Check for spacy language model updates"""
-    import requests
-
-    response = requests.get("https://raw.githubusercontent.com/explosion/spaCy/master/website/meta/languages.json")
-    if response.status_code == 404:
-        print("Unable to fetch language information from Spacy GitHub")
-        return []
-    try:
-        languages = response.json()
-        models = {lang["name"].lower(): lang["models"] for lang in languages["languages"] if "models" in lang}
-        model: List[str] = models[language][::-1]
-        print(model)
-    except KeyError:
-        return []
-    return model
-
-
 @Language.factory(
     "postprocessor",
     default_config={
@@ -528,18 +481,9 @@ def clear_trf_data(doc):
     return doc
 
 
-def load_language_model(language, normalize_options: dict[str, Any]) -> tuple[Language, bool]:
+def load_language_model(language_model, normalize_options: dict[str, Any]) -> tuple[Language, bool]:
     """Load language model based on name"""
     nlp = None
-    language = language.lower()
-    try:
-        possible_models = SPACY_LANGUAGE_MODEL_MAP[language][::-1]
-    except KeyError:
-        try:
-            possible_models = check_for_updates(language)
-        except KeyError:
-            print(f"Spacy does not support the {language} language.")
-            exit(-1)
     if any(
         (
             normalize_options["lemmatizer"] == "spacy",
@@ -552,26 +496,22 @@ def load_language_model(language, normalize_options: dict[str, Any]) -> tuple[La
             disabled_pipelines.append("tagger")
         if not normalize_options["ents_to_keep"]:
             disabled_pipelines.append("ner")
-        model_loaded = ""
         set_gpu_allocator("pytorch")
         use_gpu = prefer_gpu()
-        for model in possible_models:
-            try:
-                nlp = spacy.load(model, exclude=disabled_pipelines)
-                print("Using Spacy model", model)
-            except OSError:
-                pass
-            if nlp is not None:
-                model_loaded = model
-                break
+        try:
+            nlp = spacy.load(language_model, exclude=disabled_pipelines)
+        except OSError:
+            pass
         if nlp is None:
-            print(f"No Spacy model installed for the {language} language. Stopping...")
+            print(
+                f"The Spacy model {language_model} is not installed on your system. See https://spacy.io/models for instructions. Stopping..."
+            )
             exit(-1)
         if use_gpu is True:
             nlp.add_pipe("clear_trf_data", last=True)
         nlp.add_pipe("postprocessor", config=normalize_options, last=True)
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
-            print(f"There is no NER pipeline for model {model_loaded}. Exiting...")
+            print(f"There is no NER pipeline for model {language_model}. Exiting...")
             exit(-1)
         return nlp, use_gpu
     nlp = spacy.blank("en")

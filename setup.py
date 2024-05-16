@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name="text_preprocessing",
-    version="1.0.5",
+    version="1.1",
     author="The ARTFL Project",
     author_email="clovisgladstone@gmail.com",
     packages=["text_preprocessing", "text_preprocessing.lang"],

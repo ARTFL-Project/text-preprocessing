@@ -57,6 +57,7 @@ class PreProcessor:
         word_regex: str = r"[\p{L}\p{M}\p{N}]+|'",
         sentence_boundaries: list[str] = [".", "!", "?"],
         language: str = "french",
+        language_model: str | None = None,
         modernize: bool = False,
         strip_tags: bool = False,
         is_philo_db: bool = False,
@@ -100,7 +101,8 @@ class PreProcessor:
         if nlp_model is not None:
             self.nlp = nlp_model
         else:
-            self.nlp, using_gpu = load_language_model(self.language, self.normalize_options)
+            if language_model is not None:
+                self.nlp, using_gpu = load_language_model(language_model, self.normalize_options)
             self.using_gpu = using_gpu
         if workers is None:
             cpu_count = os.cpu_count() or 2

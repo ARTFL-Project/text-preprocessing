@@ -101,8 +101,7 @@ class PreProcessor:
         if nlp_model is not None:
             self.nlp = nlp_model
         else:
-            if language_model is not None:
-                self.nlp, using_gpu = load_language_model(language_model, self.normalize_options)
+            self.nlp, using_gpu = load_language_model(language_model, self.normalize_options)
             self.using_gpu = using_gpu
         if workers is None:
             cpu_count = os.cpu_count() or 2
@@ -173,7 +172,7 @@ class PreProcessor:
                     )
             if isinstance(tokens, PreparedDoc):
                 spacy_doc = make_spacy_doc(self.nlp, tokens)
-                if spacy_doc._.char_num > 100000:  # being conservative to preserve GPU RAM
+                if spacy_doc._.char_num > 100000 and self.using_gpu is True:  # being conservative to preserve GPU RAM
                     split_doc = self.__split_spacy_docs(spacy_doc)
                     rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc, batch_size=128)))
                     rebuilt_doc._.metadata = spacy_doc._.metadata
@@ -260,9 +259,7 @@ class TextFetcher:
         else:
             cls.modernize = False
         cls.strip_tags = strip_tags
-
         cls.is_philo_db = is_philo_db
-
         cls.text_object_type = text_object_type
         cls.token_regex = re.compile(rf"({word_regex})|([{''.join(sentence_boundaries)}])")
         cls.sentence_boundaries = sentence_boundaries

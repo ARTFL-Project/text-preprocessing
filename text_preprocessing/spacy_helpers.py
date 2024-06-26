@@ -438,6 +438,7 @@ class PreProcessingPipe:
                 return True
             return False
         if self.pos_to_keep and token.pos_ not in self.pos_to_keep:
+            print(token, self.pos_to_keep, token.pos_)
             return True
         return False
 
@@ -484,7 +485,7 @@ def clear_trf_data(doc):
 def load_language_model(language_model, normalize_options: dict[str, Any]) -> tuple[Language, bool]:
     """Load language model based on name"""
     nlp = None
-    if any(
+    if language_model is not None and any(
         (
             normalize_options["lemmatizer"] == "spacy",
             normalize_options["pos_to_keep"],

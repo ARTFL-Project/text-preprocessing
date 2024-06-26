@@ -438,7 +438,6 @@ class PreProcessingPipe:
                 return True
             return False
         if self.pos_to_keep and token.pos_ not in self.pos_to_keep:
-            print(token, self.pos_to_keep, token.pos_)
             return True
         return False
 

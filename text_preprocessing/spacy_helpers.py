@@ -473,15 +473,7 @@ class PreProcessingPipe:
         return token
 
 
-@Language.component("clear_trf_data")
-def clear_trf_data(doc):
-    """Clear the cache of a doc to free GPU memory"""
-    if hasattr(doc._, "trf_data"):
-        doc._.trf_data = None
-    return doc
-
-
-def load_language_model(language_model, normalize_options: dict[str, Any]) -> tuple[Language, bool]:
+def load_language_model(language_model, normalize_options: dict[str, Any]) -> Language:
     """Load language model based on name"""
     nlp = None
     if language_model is not None and any(
@@ -508,12 +500,12 @@ def load_language_model(language_model, normalize_options: dict[str, Any]) -> tu
             )
             exit(-1)
         if use_gpu is True:
-            nlp.add_pipe("clear_trf_data", last=True)
+            nlp.add_pipe("doc_cleaner", last=True, config={"attrs": {"tensor": None}})
         nlp.add_pipe("postprocessor", config=normalize_options, last=True)
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
             print(f"There is no NER pipeline for model {language_model}. Exiting...")
             exit(-1)
-        return nlp, use_gpu
+        return nlp
     nlp = spacy.blank("en")
     nlp.add_pipe("postprocessor", config=normalize_options, last=True)
-    return nlp, False
+    return nlp

@@ -12,7 +12,7 @@ setup(
     install_requires=[
         "unidecode",
         "PyStemmer",
-        "spacy>=3.7,<3.8",
+        "spacy>=3.8",
         "orjson",
         "requests",
         "lz4",

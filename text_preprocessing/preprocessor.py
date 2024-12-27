@@ -55,12 +55,11 @@ def check_gpu_ram():
     total = torch.cuda.get_device_properties(device).total_memory
     allocated_percent = (allocated / total) * 100
 
-    if allocated_percent > 20:  # This is is only a subset of RAM usage, but indicative of high usage
+    if allocated_percent > 20:  # This is is only a subset of GPU RAM usage, but indicative of high usage
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
         gc.collect()
-        print("Attempting to free GPU memory...")
 
 
 def process_batch_texts(
@@ -71,6 +70,9 @@ def process_batch_texts(
     do_nlp,
     keep_all,
     using_gpu,
+    count,
+    progress,
+    progress_prefix,
 ):
     nlp = load_language_model(language_model, normalize_options)
     results = []
@@ -78,9 +80,9 @@ def process_batch_texts(
     for tokens, _ in text_fetcher(batch_texts, do_nlp=do_nlp, keep_all=keep_all, progress=False):
         if isinstance(tokens, PreparedDoc):
             spacy_doc = make_spacy_doc(nlp, tokens)
-            if spacy_doc._.char_num > 100000 and using_gpu is True:
+            if spacy_doc._.char_num > 10000 and using_gpu is True:
                 split_doc = split_spacy_docs(nlp, spacy_doc)
-                doc = Doc.from_docs(list(nlp.pipe(split_doc, batch_size=128)))
+                doc = Doc.from_docs(list(nlp.pipe(split_doc, batch_size=64)))
                 doc._.metadata = spacy_doc._.metadata
                 results.append(Tokens(doc, keep_all=keep_all))
             else:
@@ -89,6 +91,11 @@ def process_batch_texts(
             results.append(Tokens(tokens, keep_all=keep_all))
         else:
             results.append(tokens)
+        if using_gpu:
+            check_gpu_ram()
+        if progress:
+            count += 1
+            print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
     return results
 
 
@@ -209,7 +216,7 @@ class PreProcessor:
         else:
             self.do_nlp = False
 
-    def __process_batch(self, pool, batch, keep_all):
+    def __process_batch(self, pool, batch, keep_all, count, progress, progress_prefix):
         for tokens in pool.apply(
             process_batch_texts,
             (
@@ -220,6 +227,9 @@ class PreProcessor:
                 self.do_nlp,
                 keep_all,
                 self.using_gpu,
+                count,
+                progress,
+                progress_prefix,
             ),
         ):
             if self.ngram_config is not None:
@@ -242,21 +252,16 @@ class PreProcessor:
         print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
         for text in texts:
             current_batch.append(text)
-            if len(current_batch) >= 20:
+            if len(current_batch) >= 100:
                 with mp.Pool(1) as pool:
-                    yield from self.__process_batch(pool, current_batch, keep_all)
+                    yield from self.__process_batch(pool, current_batch, keep_all, count, progress, progress_prefix)
                     count += len(current_batch)
-                    if progress:
-                        print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
                 current_batch = []
 
         # Process the remaining texts
         if current_batch:
             with mp.Pool(1) as pool:
-                yield from self.__process_batch(pool, current_batch, keep_all)
-                count += len(current_batch)
-                if progress:
-                    print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
+                yield from self.__process_batch(pool, current_batch, keep_all, count, progress, progress_prefix)
 
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""

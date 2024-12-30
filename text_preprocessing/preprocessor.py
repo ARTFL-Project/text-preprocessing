@@ -263,6 +263,7 @@ class PreProcessor:
             if len(current_batch) >= 100:
                 with mp.Pool(1) as pool:
                     yield from self.__process_batch(pool, current_batch, keep_all, progress_info)
+                    progress_info["count"] += 1
                 current_batch = []
 
         # Process the remaining texts

@@ -63,22 +63,12 @@ def check_gpu_ram():
 
 
 def process_batch_texts(
-    text_fetcher_args,
-    batch_texts,
-    language_model,
-    normalize_options,
-    do_nlp,
-    keep_all,
-    using_gpu,
-    count,
-    progress,
-    progress_prefix,
+    text_fetcher_args, batch_texts, language_model, normalize_options, do_nlp, keep_all, using_gpu, progress_info
 ):
     nlp = load_language_model(language_model, normalize_options)
     results = []
     text_fetcher = TextFetcher(nlp, **text_fetcher_args)  # Initialize text_fetcher with required params
     previous_philo_id = None
-    doc_count = 0
     for tokens, _ in text_fetcher(batch_texts, do_nlp=do_nlp, keep_all=keep_all, progress=False):
         if isinstance(tokens, PreparedDoc):
             spacy_doc = make_spacy_doc(nlp, tokens)
@@ -86,27 +76,32 @@ def process_batch_texts(
                 split_doc = split_spacy_docs(nlp, spacy_doc)
                 doc = Doc.from_docs(list(nlp.pipe(split_doc, batch_size=64)))
                 doc._.metadata = spacy_doc._.metadata
-                results.append(Tokens(doc, keep_all=keep_all))
+                tokens = Tokens(doc, keep_all=keep_all)
             else:
-                results.append(Tokens(nlp(spacy_doc), keep_all=keep_all))
+                tokens = Tokens(nlp(spacy_doc), keep_all=keep_all)
         elif isinstance(tokens, Doc):
-            results.append(Tokens(tokens, keep_all=keep_all))
-        else:
-            results.append(tokens)
+            tokens = Tokens(tokens, keep_all=keep_all)
         if using_gpu:
             check_gpu_ram()
-        current_doc_id = results[-1].metadata.get("philo_id").split()[0]
+        current_doc_id = tokens.metadata.get("philo_id").split()[0]
         if previous_philo_id != current_doc_id:
-            doc_count += 1
-        if progress:
-            count += 1
+            progress_info["doc_count"] += 1
+        if progress_info["progress"] is True:
+            progress_info["count"] += 1
             if text_fetcher_args["text_object_type"] == "doc":
-                print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
+                print(
+                    f"\r{progress_info['progress_prefix']} {progress_info['count']} texts processed...",
+                    end="",
+                    flush=True,
+                )
             else:
                 print(
-                    f"\r{progress_prefix} {count} text chunks of {doc_count} documents processed...", end="", flush=True
+                    f"\r{progress_info['progress_prefix']} {progress_info['count']} text chunks of {progress_info['doc_count']} documents processed...",
+                    end="",
+                    flush=True,
                 )
         previous_philo_id = current_doc_id
+        results.append(tokens)
     return results
 
 
@@ -227,7 +222,7 @@ class PreProcessor:
         else:
             self.do_nlp = False
 
-    def __process_batch(self, pool, batch, keep_all, count, progress, progress_prefix):
+    def __process_batch(self, pool, batch, keep_all, progress_info):
         for tokens in pool.apply(
             process_batch_texts,
             (
@@ -238,9 +233,7 @@ class PreProcessor:
                 self.do_nlp,
                 keep_all,
                 self.using_gpu,
-                count,
-                progress,
-                progress_prefix,
+                progress_info,
             ),
         ):
             if self.ngram_config is not None:
@@ -257,22 +250,25 @@ class PreProcessor:
         progress_prefix="Processing texts...",
     ) -> Iterable[Tokens]:
         """Process all documents. Returns an iterator of documents"""
-
-        count = 0
+        progress_info = {"count": 0, "doc_count": 0, "progress": progress, "progress_prefix": progress_prefix}
         current_batch = []
-        print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
+        if progress is True:
+            if self.text_fetcher_args["text_object_type"] == "doc":
+                print(f"\r{progress_prefix} 0 documents processed...", end="", flush=True)
+            else:
+                print(f"\r{progress_prefix} 0 text chunks of 0 documents processed...", end="", flush=True)
         for text in texts:
             current_batch.append(text)
+            progress_info["doc_count"] += 1
             if len(current_batch) >= 100:
                 with mp.Pool(1) as pool:
-                    yield from self.__process_batch(pool, current_batch, keep_all, count, progress, progress_prefix)
-                    count += len(current_batch)
+                    yield from self.__process_batch(pool, current_batch, keep_all, progress_info)
                 current_batch = []
 
         # Process the remaining texts
         if current_batch:
             with mp.Pool(1) as pool:
-                yield from self.__process_batch(pool, current_batch, keep_all, count, progress, progress_prefix)
+                yield from self.__process_batch(pool, current_batch, keep_all, progress_info)
 
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""

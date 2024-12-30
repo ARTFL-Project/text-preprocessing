@@ -77,6 +77,8 @@ def process_batch_texts(
     nlp = load_language_model(language_model, normalize_options)
     results = []
     text_fetcher = TextFetcher(nlp, **text_fetcher_args)  # Initialize text_fetcher with required params
+    previous_philo_id = None
+    doc_count = 0
     for tokens, _ in text_fetcher(batch_texts, do_nlp=do_nlp, keep_all=keep_all, progress=False):
         if isinstance(tokens, PreparedDoc):
             spacy_doc = make_spacy_doc(nlp, tokens)
@@ -93,9 +95,18 @@ def process_batch_texts(
             results.append(tokens)
         if using_gpu:
             check_gpu_ram()
+        current_doc_id = results[-1].metadata.get("philo_id").split()[0]
+        if previous_philo_id != current_doc_id:
+            doc_count += 1
         if progress:
             count += 1
-            print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
+            if text_fetcher_args["text_object_type"] == "doc":
+                print(f"\r{progress_prefix} {count} texts processed...", end="", flush=True)
+            else:
+                print(
+                    f"\r{progress_prefix} {count} text chunks of {doc_count} documents processed...", end="", flush=True
+                )
+        previous_philo_id = current_doc_id
     return results
 
 

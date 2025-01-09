@@ -63,14 +63,13 @@ def check_gpu_ram():
 
 
 def process_batch_texts(
-    text_fetcher_args, batch_texts, language_model, normalize_options, do_nlp, keep_all, using_gpu, progress_info
+    queue, text_fetcher_args, batch_texts, language_model, normalize_options, do_nlp, keep_all, progress_info
 ):
-    nlp = load_language_model(language_model, normalize_options)
-    results = []
+    nlp, using_gpu = load_language_model(language_model, normalize_options)
     text_fetcher = TextFetcher(nlp, **text_fetcher_args)  # Initialize text_fetcher with required params
     previous_philo_id = None
     for tokens, _ in text_fetcher(batch_texts, do_nlp=do_nlp, keep_all=keep_all, progress=False):
-        if isinstance(tokens, PreparedDoc):
+        if isinstance(tokens, PreparedDoc) and using_gpu is True:
             spacy_doc = make_spacy_doc(nlp, tokens)
             if spacy_doc._.char_num > 10000 and using_gpu is True:
                 split_doc = split_spacy_docs(nlp, spacy_doc)
@@ -101,8 +100,8 @@ def process_batch_texts(
                     flush=True,
                 )
         previous_philo_id = current_doc_id
-        results.append(tokens)
-    return results
+        queue.put(tokens)
+    queue.put(None)
 
 
 def split_spacy_docs(nlp, doc: Doc) -> list[Doc]:
@@ -168,8 +167,6 @@ class PreProcessor:
         pos_to_keep: list[str] | bool = False,
         ents_to_keep: list[str] | bool = False,
         post_processing_function: Callable | None = None,
-        nlp_model: Language | None = None,
-        using_gpu: bool = False,
         **_,  # this is meant to make the constructor accept invalid keywords
     ):
         self.normalize_options = {
@@ -188,14 +185,6 @@ class PreProcessor:
         }
         self.language = language
         self.language_model = language_model
-        self.using_gpu = spacy.prefer_gpu()
-        if workers is None:
-            cpu_count = os.cpu_count() or 2
-            self.workers = cpu_count - 1
-        else:
-            self.workers = workers
-        if self.using_gpu is True:
-            self.workers = 1
         ngrams = ngrams or 0
         if ngrams:
             self.ngram_config = {
@@ -206,6 +195,21 @@ class PreProcessor:
         else:
             self.ngram_config = None
         self.post_func = post_processing_function
+        if workers is None:
+            cpu_count = os.cpu_count() or 2
+            self.workers = cpu_count - 1
+        else:
+            self.workers = workers
+        if self.normalize_options["pos_to_keep"] or self.normalize_options["ents_to_keep"] or lemmatizer == "spacy":
+            self.do_nlp = True
+        else:
+            self.do_nlp = False
+        if self.do_nlp is False:
+            using_gpu = False
+        else:
+            using_gpu = spacy.prefer_gpu()
+        if using_gpu is True:
+            self.workers = 1
         self.text_fetcher_args = {
             "word_regex": word_regex,
             "sentence_boundaries": sentence_boundaries,
@@ -217,30 +221,35 @@ class PreProcessor:
             "workers": self.workers,
             "ngram_config": self.ngram_config,
         }
-        if self.normalize_options["pos_to_keep"] or self.normalize_options["ents_to_keep"] or lemmatizer == "spacy":
-            self.do_nlp = True
-        else:
-            self.do_nlp = False
 
-    def __process_batch(self, pool, batch, keep_all, progress_info):
-        for tokens in pool.apply(
-            process_batch_texts,
-            (
+    def __process_batch(self, batch, keep_all, progress_info):
+        queue = mp.Queue()
+        process = mp.Process(
+            target=process_batch_texts,
+            args=(
+                queue,
                 self.text_fetcher_args,
                 batch,
                 self.language_model,
                 self.normalize_options,
                 self.do_nlp,
                 keep_all,
-                self.using_gpu,
                 progress_info,
             ),
-        ):
+        )
+        process.start()
+
+        while True:
+            tokens = queue.get()  # This blocks until data is available
+            if tokens is None:  # End signal
+                break
             if self.ngram_config is not None:
                 tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
             if self.post_func is not None:
                 tokens = self.post_func(tokens)
             yield tokens
+
+        process.join()
 
     def process_texts(
         self,
@@ -259,17 +268,15 @@ class PreProcessor:
                 print(f"\r{progress_prefix} 0 text chunks of 0 documents processed...", end="", flush=True)
         for text in texts:
             current_batch.append(text)
-            progress_info["doc_count"] += 1
             if len(current_batch) >= 100:
-                with mp.Pool(1) as pool:
-                    yield from self.__process_batch(pool, current_batch, keep_all, progress_info)
-                    progress_info["count"] += 1
+                yield from self.__process_batch(current_batch, keep_all, progress_info)
+                progress_info["count"] += 1
                 current_batch = []
+                progress_info["doc_count"] += 100
 
         # Process the remaining texts
         if current_batch:
-            with mp.Pool(1) as pool:
-                yield from self.__process_batch(pool, current_batch, keep_all, progress_info)
+            yield from self.__process_batch(current_batch, keep_all, progress_info)
 
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""

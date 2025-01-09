@@ -473,7 +473,7 @@ class PreProcessingPipe:
         return token
 
 
-def load_language_model(language_model, normalize_options: dict[str, Any]) -> Language:
+def load_language_model(language_model, normalize_options: dict[str, Any]) -> tuple[Language, bool]:
     """Load language model based on name"""
     nlp = None
     if language_model is not None and any(
@@ -505,7 +505,7 @@ def load_language_model(language_model, normalize_options: dict[str, Any]) -> La
         if normalize_options["ents_to_keep"] and "ner" not in nlp.pipe_names:
             print(f"There is no NER pipeline for model {language_model}. Exiting...")
             exit(-1)
-        return nlp
+        return nlp, use_gpu
     nlp = spacy.blank("en")
     nlp.add_pipe("postprocessor", config=normalize_options, last=True)
-    return nlp
+    return nlp, False

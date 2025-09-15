@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Callable, DefaultDict, Deque, Iterable
 
-import cupy as cp
 import lz4.frame
 import orjson
 import regex as re

@@ -68,7 +68,7 @@ def process_batch_texts(
     text_fetcher = TextFetcher(nlp, **text_fetcher_args)  # Initialize text_fetcher with required params
     previous_philo_id = None
     for tokens, _ in text_fetcher(batch_texts, do_nlp=do_nlp, keep_all=keep_all, progress=False):
-        if isinstance(tokens, PreparedDoc) and using_gpu is True:
+        if isinstance(tokens, PreparedDoc):
             spacy_doc = make_spacy_doc(nlp, tokens)
             if spacy_doc._.char_num > 10000 and using_gpu is True:
                 split_doc = split_spacy_docs(nlp, spacy_doc)

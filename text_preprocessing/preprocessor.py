@@ -81,24 +81,25 @@ def process_batch_texts(
             tokens = Tokens(tokens, keep_all=keep_all)
         if using_gpu:
             check_gpu_ram()
-        current_doc_id = tokens.metadata.get("philo_id").split()[0]
-        if previous_philo_id != current_doc_id:
-            progress_info["doc_count"] += 1
-        if progress_info["progress"] is True:
-            progress_info["count"] += 1
-            if text_fetcher_args["text_object_type"] == "doc":
-                print(
-                    f"\r{progress_info['progress_prefix']} {progress_info['count']} texts processed...",
-                    end="",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"\r{progress_info['progress_prefix']} {progress_info['count']} text chunks of {progress_info['doc_count']} documents processed...",
-                    end="",
-                    flush=True,
-                )
-        previous_philo_id = current_doc_id
+        if text_fetcher_args["is_philo_db"] is True:
+            current_doc_id = tokens.metadata.get("philo_id").split()[0]
+            if previous_philo_id != current_doc_id:
+                progress_info["doc_count"] += 1
+            if progress_info["progress"] is True:
+                progress_info["count"] += 1
+                if text_fetcher_args["text_object_type"] == "doc":
+                    print(
+                        f"\r{progress_info['progress_prefix']} {progress_info['count']} texts processed...",
+                        end="",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"\r{progress_info['progress_prefix']} {progress_info['count']} text chunks of {progress_info['doc_count']} documents processed...",
+                        end="",
+                        flush=True,
+                    )
+            previous_philo_id = current_doc_id
         queue.put(tokens)
     queue.put(None)
 
@@ -282,7 +283,7 @@ class PreProcessor:
         """Take a string and return a list of preprocessed tokens"""
         progress_info = {"count": 0, "doc_count": 0, "progress": False, "progress_prefix": ""}
         self.text_fetcher_args["is_philo_db"] = False  # Ensure string processing does not expect PhiloLogic format
-
+        self.text_fetcher_args["is_string"] = True  # Ensure string processing
         result = self.__process_batch([text], keep_all, progress_info)
         return next(result)
 
@@ -314,7 +315,7 @@ class TextFetcher:
         text_object_type="doc",
         ngram_config=None,
         workers=None,
-        is_text=False,
+        is_string=False,
         **_,  # this is meant to make the constructor accept invalid keywords
     ):
         cls.language = language
@@ -334,7 +335,7 @@ class TextFetcher:
         else:
             cls.workers = workers
         cls.ngram_config = ngram_config
-        cls.is_text = is_text
+        cls.is_string = is_string
 
     @classmethod
     def __call__(
@@ -363,7 +364,7 @@ class TextFetcher:
         text, do_nlp, keep_all, post_func = args
         if cls.is_philo_db is True:
             text_objects, sent_starts_list, metadata = cls.process_philo_text(text)
-        elif cls.is_text is True:
+        elif cls.is_string is True:
             text_objects, sent_starts_list, metadata = cls.process_string(text)
         else:
             text_objects, sent_starts_list, metadata = cls.process_text(text)
@@ -401,14 +402,16 @@ class TextFetcher:
         """Process one document. Return the transformed document"""
         with open(text, encoding="utf-8") as input_text:
             doc: str = input_text.read()
-        return cls.process_string(doc)
+        tokens, sent_starts = cls.tokenize_text(doc)
+        metadata: dict[str, Any] = {"filename": text}
+        return [tokens], [sent_starts], [metadata]
 
     @classmethod
-    def process_string(cls, text: str) -> tuple[list[tuple[str, dict[str, str]]], list[bool], dict[str, Any]]:
+    def process_string(cls, text: str):
         """Process one string. Return the transformed document"""
         tokens, sent_starts = cls.tokenize_text(text)
         metadata: dict[str, Any] = {"filename": text}
-        return tokens, sent_starts, metadata
+        return [tokens], [sent_starts], [metadata]
 
     @classmethod
     def tokenize_text(cls, doc: str) -> tuple[list[tuple[str, dict[str, str]]], list[bool]]:

@@ -280,6 +280,7 @@ class PreProcessor:
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""
         progress_info = {"count": 0, "doc_count": 0, "progress": False, "progress_prefix": ""}
+        self.text_fetcher_args["is_philo_db"] = False  # Ensure string processing does not expect PhiloLogic format
         result = self.__process_batch([text], keep_all, progress_info)
         return next(result)
 

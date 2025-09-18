@@ -279,7 +279,6 @@ class PreProcessor:
 
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""
-        mp.set_start_method("spawn")
         with mp.Pool(1) as pool:
             for tokens in pool.apply(
                 process_batch_texts,

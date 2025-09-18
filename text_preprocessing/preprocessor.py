@@ -219,6 +219,7 @@ class PreProcessor:
             "text_object_type": text_object_type,
             "workers": self.workers,
             "ngram_config": self.ngram_config,
+            "is_string": False
         }
 
     def __process_batch(self, batch, keep_all, progress_info):
@@ -281,6 +282,7 @@ class PreProcessor:
         """Take a string and return a list of preprocessed tokens"""
         progress_info = {"count": 0, "doc_count": 0, "progress": False, "progress_prefix": ""}
         self.text_fetcher_args["is_philo_db"] = False  # Ensure string processing does not expect PhiloLogic format
+
         result = self.__process_batch([text], keep_all, progress_info)
         return next(result)
 
@@ -312,6 +314,7 @@ class TextFetcher:
         text_object_type="doc",
         ngram_config=None,
         workers=None,
+        is_text=False,
         **_,  # this is meant to make the constructor accept invalid keywords
     ):
         cls.language = language
@@ -331,6 +334,7 @@ class TextFetcher:
         else:
             cls.workers = workers
         cls.ngram_config = ngram_config
+        cls.is_text = is_text
 
     @classmethod
     def __call__(
@@ -359,6 +363,8 @@ class TextFetcher:
         text, do_nlp, keep_all, post_func = args
         if cls.is_philo_db is True:
             text_objects, sent_starts_list, metadata = cls.process_philo_text(text)
+        elif cls.is_text is True:
+            text_objects, sent_starts_list, metadata = cls.process_string(text)
         else:
             text_objects, sent_starts_list, metadata = cls.process_text(text)
         docs = cls.__prepare_docs(text_objects, sent_starts_list, metadata)
@@ -395,18 +401,14 @@ class TextFetcher:
         """Process one document. Return the transformed document"""
         with open(text, encoding="utf-8") as input_text:
             doc: str = input_text.read()
-        tokens, sent_starts = cls.tokenize_text(doc)
-        metadata: dict[str, Any] = {"filename": text}
-        return tokens, sent_starts, metadata
+        return cls.process_string(doc)
 
     @classmethod
-    def process_string(cls, text: str) -> Doc:
+    def process_string(cls, text: str) -> tuple[list[tuple[str, dict[str, str]]], list[bool], dict[str, Any]]:
         """Process one string. Return the transformed document"""
         tokens, sent_starts = cls.tokenize_text(text)
-        doc = Doc(cls.model.vocab, [word for word, _ in tokens], sent_starts=sent_starts)  # type: ignore
-        for pos, (_, ext) in enumerate(tokens):
-            doc[pos]._.ext = ext
-        return doc
+        metadata: dict[str, Any] = {"filename": text}
+        return tokens, sent_starts, metadata
 
     @classmethod
     def tokenize_text(cls, doc: str) -> tuple[list[tuple[str, dict[str, str]]], list[bool]]:

@@ -279,23 +279,9 @@ class PreProcessor:
 
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""
-        with mp.Pool(1) as pool:
-            for tokens in pool.apply(
-                process_batch_texts,
-                (
-                    self.text_fetcher_args,
-                    [text],
-                    self.language_model,
-                    self.normalize_options,
-                    self.do_nlp,
-                    keep_all,
-                    self.ngram_config,
-                    self.post_func,
-                ),
-            ):
-                output_tokens = Tokens(tokens, keep_all=keep_all)
-                break
-        return output_tokens
+        progress_info = {"count": 0, "doc_count": 0, "progress": False, "progress_prefix": ""}
+        result = self.__process_batch([text], keep_all, progress_info)
+        return next(result)
 
 
 class TextFetcher:

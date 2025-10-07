@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Text Preprocessor"""
 
-import gc
-import multiprocessing as mp
 import os
 import sqlite3
 import sys
-import warnings
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from itertools import combinations
@@ -15,18 +12,12 @@ from typing import Any, Callable, DefaultDict, Deque, Iterable
 import lz4.frame
 import orjson
 import regex as re
-import spacy
-import torch
 from multiprocess.pool import Pool
 from spacy.language import Language
 from spacy.tokens import Doc, Token
 
 from .modernizer import Modernizer
 from .spacy_helpers import PreprocessorToken, Tokens, load_language_model
-
-# Suppress all UserWarning messages
-warnings.filterwarnings("ignore", category=UserWarning)
-mp.set_start_method("spawn", force=True)
 
 Doc.set_extension("metadata", default={})
 Doc.set_extension("char_num", default=0)
@@ -45,86 +36,6 @@ PHILO_TEXT_OBJECT_TYPE: dict[str, int] = {
 }
 
 PHILO_OBJECT_LEVEL: dict[int, str] = {1: "doc", 2: "div1", 3: "div2", 4: "div3", 5: "para", 6: "sent", 7: "word"}
-
-
-def check_gpu_ram():
-    """Returns the percentage of GPU memory being used."""
-    device = torch.cuda.current_device()
-    allocated = torch.cuda.memory_allocated(device)
-    total = torch.cuda.get_device_properties(device).total_memory
-    allocated_percent = (allocated / total) * 100
-
-    if allocated_percent > 20:  # This is is only a subset of GPU RAM usage, but indicative of high usage
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-        gc.collect()
-
-
-def process_batch_texts(
-    queue, text_fetcher_args, batch_texts, language_model, normalize_options, do_nlp, keep_all, progress_info
-):
-    nlp, using_gpu = load_language_model(language_model, normalize_options)
-    text_fetcher = TextFetcher(nlp, **text_fetcher_args)  # Initialize text_fetcher with required params
-    previous_philo_id = None
-    for tokens, _ in text_fetcher(batch_texts, do_nlp=do_nlp, keep_all=keep_all, progress=False):
-        if isinstance(tokens, PreparedDoc):
-            spacy_doc = make_spacy_doc(nlp, tokens)
-            if spacy_doc._.char_num > 10000 and using_gpu is True:
-                split_doc = split_spacy_docs(nlp, spacy_doc)
-                doc = Doc.from_docs(list(nlp.pipe(split_doc, batch_size=64)))
-                doc._.metadata = spacy_doc._.metadata
-                tokens = Tokens(doc, keep_all=keep_all)
-            else:
-                tokens = Tokens(nlp(spacy_doc), keep_all=keep_all)
-        elif isinstance(tokens, Doc):
-            tokens = Tokens(tokens, keep_all=keep_all)
-        if using_gpu:
-            check_gpu_ram()
-        if text_fetcher_args["is_philo_db"] is True:
-            current_doc_id = tokens.metadata.get("philo_id").split()[0]
-            if previous_philo_id != current_doc_id:
-                progress_info["doc_count"] += 1
-            if progress_info["progress"] is True:
-                progress_info["count"] += 1
-                if text_fetcher_args["text_object_type"] == "doc":
-                    print(
-                        f"\r{progress_info['progress_prefix']} {progress_info['count']} texts processed...",
-                        end="",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        f"\r{progress_info['progress_prefix']} {progress_info['count']} text chunks of {progress_info['doc_count']} documents processed...",
-                        end="",
-                        flush=True,
-                    )
-            previous_philo_id = current_doc_id
-        queue.put(tokens)
-    queue.put(None)
-
-
-def split_spacy_docs(nlp, doc: Doc) -> list[Doc]:
-    """Split spacy doc into smaller docs of 10 sentences"""
-    sentence_group: list[Doc] = []
-    docs: list[Doc] = []
-    for sent in doc.sents:
-        if len(sentence_group) == 10:
-            docs.append(Doc.from_docs(sentence_group))
-            sentence_group = []
-        else:
-            sent_starts = []
-            words = []
-            for token in sent:
-                sent_starts.append(token.is_sent_start)
-                words.append(token.text)
-            sent_doc = Doc(nlp.vocab, words, sent_starts=sent_starts)
-            for pos, token in enumerate(sent):
-                sent_doc[pos]._.ext = token._.ext
-            sentence_group.append(sent_doc)
-    if sentence_group:
-        docs.append(Doc.from_docs(sentence_group))
-    return docs
 
 
 @dataclass(slots=True)
@@ -184,7 +95,15 @@ class PreProcessor:
             "ents_to_keep": ents_to_keep or [],
         }
         self.language = language
-        self.language_model = language_model
+        self.nlp, using_gpu = load_language_model(language_model, self.normalize_options)
+        self.using_gpu = using_gpu
+        if workers is None:
+            cpu_count = os.cpu_count() or 2
+            self.workers = cpu_count - 1
+        else:
+            self.workers = workers
+        if self.using_gpu is True:
+            self.workers = 1
         ngrams = ngrams or 0
         if ngrams:
             self.ngram_config = {
@@ -195,62 +114,22 @@ class PreProcessor:
         else:
             self.ngram_config = None
         self.post_func = post_processing_function
-        if workers is None:
-            cpu_count = os.cpu_count() or 2
-            self.workers = cpu_count - 1
-        else:
-            self.workers = workers
+        self.text_fetcher = TextFetcher(
+            self.nlp,
+            word_regex=word_regex,
+            sentence_boundaries=sentence_boundaries,
+            language=language,
+            modernize=modernize,
+            strip_tags=strip_tags,
+            is_philo_db=is_philo_db,
+            text_object_type=text_object_type,
+            ngram_config=self.ngram_config,
+            workers=self.workers,
+        )
         if self.normalize_options["pos_to_keep"] or self.normalize_options["ents_to_keep"] or lemmatizer == "spacy":
             self.do_nlp = True
         else:
             self.do_nlp = False
-        if self.do_nlp is False:
-            using_gpu = False
-        else:
-            using_gpu = spacy.prefer_gpu()
-        if using_gpu is True:
-            self.workers = 1
-        self.text_fetcher_args = {
-            "word_regex": word_regex,
-            "sentence_boundaries": sentence_boundaries,
-            "language": language,
-            "modernize": modernize,
-            "strip_tags": strip_tags,
-            "is_philo_db": is_philo_db,
-            "text_object_type": text_object_type,
-            "workers": self.workers,
-            "ngram_config": self.ngram_config,
-            "is_string": False
-        }
-
-    def __process_batch(self, batch, keep_all, progress_info):
-        queue = mp.Queue()
-        process = mp.Process(
-            target=process_batch_texts,
-            args=(
-                queue,
-                self.text_fetcher_args,
-                batch,
-                self.language_model,
-                self.normalize_options,
-                self.do_nlp,
-                keep_all,
-                progress_info,
-            ),
-        )
-        process.start()
-
-        while True:
-            tokens = queue.get()  # This blocks until data is available
-            if tokens is None:  # End signal
-                break
-            if self.ngram_config is not None:
-                tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
-            if self.post_func is not None:
-                tokens = self.post_func(tokens)
-            yield tokens
-
-        process.join()
 
     def process_texts(
         self,
@@ -260,32 +139,82 @@ class PreProcessor:
         progress_prefix="Processing texts...",
     ) -> Iterable[Tokens]:
         """Process all documents. Returns an iterator of documents"""
-        progress_info = {"count": 0, "doc_count": 0, "progress": progress, "progress_prefix": progress_prefix}
-        current_batch = []
-        if progress is True:
-            if self.text_fetcher_args["text_object_type"] == "doc":
-                print(f"\r{progress_prefix} 0 documents processed...", end="", flush=True)
+        count = 0
+        fetched_texts = self.text_fetcher(
+            texts, do_nlp=self.do_nlp, keep_all=keep_all, progress=progress, post_func=self.post_func
+        )
+        if self.text_fetcher.text_object_type == "sent" and self.do_nlp is True:
+            fetched_texts = self.nlp.pipe(
+                ((make_spacy_doc(self.nlp, tokens), c) for tokens, c in fetched_texts),
+                as_tuples=True,
+                batch_size=250,
+            )
+        for tokens, doc_count in fetched_texts:
+            count += 1
+            if progress is True:
+                if doc_count is not None:  # workaround for sent and para since nlp.pipe does not return context...
+                    print(
+                        f"\r{progress_prefix} {doc_count} done: {count} text objects extracted... ",
+                        end="",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"\r{progress_prefix} {count} text objects extracted... ",
+                        end="",
+                        flush=True,
+                    )
+            if isinstance(tokens, PreparedDoc):
+                spacy_doc = make_spacy_doc(self.nlp, tokens)
+                if spacy_doc._.char_num > 100000 and self.using_gpu is True:  # being conservative to preserve GPU RAM
+                    split_doc = self.__split_spacy_docs(spacy_doc)
+                    rebuilt_doc = Doc.from_docs(list(self.nlp.pipe(split_doc, batch_size=128)))
+                    rebuilt_doc._.metadata = spacy_doc._.metadata
+                    tokens = Tokens(rebuilt_doc, keep_all=keep_all)
+                else:
+                    tokens = Tokens(self.nlp(spacy_doc), keep_all=keep_all)
+                if self.ngram_config is not None:
+                    tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
+                if self.post_func is not None:
+                    tokens = self.post_func(tokens)
+                yield tokens
+            elif isinstance(tokens, Doc):
+                tokens = Tokens(tokens, keep_all=keep_all)
+                if self.ngram_config is not None:
+                    tokens = generate_ngrams(**self.ngram_config, tokens=tokens)
+                if self.post_func is not None:
+                    tokens = self.post_func(tokens)
+                yield tokens
             else:
-                print(f"\r{progress_prefix} 0 text chunks of 0 documents processed...", end="", flush=True)
-        for text in texts:
-            current_batch.append(text)
-            if len(current_batch) >= 100:
-                yield from self.__process_batch(current_batch, keep_all, progress_info)
-                progress_info["count"] += 1
-                current_batch = []
-                progress_info["doc_count"] += 100
-
-        # Process the remaining texts
-        if current_batch:
-            yield from self.__process_batch(current_batch, keep_all, progress_info)
+                yield tokens
 
     def process_string(self, text: str, keep_all: bool = True) -> Tokens:
         """Take a string and return a list of preprocessed tokens"""
-        progress_info = {"count": 0, "doc_count": 0, "progress": False, "progress_prefix": ""}
-        self.text_fetcher_args["is_philo_db"] = False  # Ensure string processing does not expect PhiloLogic format
-        self.text_fetcher_args["is_string"] = True  # Ensure string processing
-        result = self.__process_batch([text], keep_all, progress_info)
-        return next(result)
+        doc = self.text_fetcher.process_string(text)
+        processed_doc = self.nlp(doc)
+        return Tokens(processed_doc, keep_all=keep_all)
+
+    def __split_spacy_docs(self, doc: Doc) -> list[Doc]:
+        """Split spacy doc into smaller docs of 10 sentences"""
+        sentence_group: list[Doc] = []
+        docs: list[Doc] = []
+        for sent in doc.sents:
+            if len(sentence_group) == 10:
+                docs.append(Doc.from_docs(sentence_group))
+                sentence_group = []
+            else:
+                sent_starts = []
+                words = []
+                for token in sent:
+                    sent_starts.append(token.is_sent_start)
+                    words.append(token.text)
+                sent_doc = Doc(self.nlp.vocab, words, sent_starts=sent_starts)
+                for pos, token in enumerate(sent):
+                    sent_doc[pos]._.ext = token._.ext
+                sentence_group.append(sent_doc)
+        if sentence_group:
+            docs.append(Doc.from_docs(sentence_group))
+        return docs
 
 
 class TextFetcher:
@@ -315,7 +244,6 @@ class TextFetcher:
         text_object_type="doc",
         ngram_config=None,
         workers=None,
-        is_string=False,
         **_,  # this is meant to make the constructor accept invalid keywords
     ):
         cls.language = language
@@ -335,7 +263,6 @@ class TextFetcher:
         else:
             cls.workers = workers
         cls.ngram_config = ngram_config
-        cls.is_string = is_string
 
     @classmethod
     def __call__(
@@ -351,21 +278,27 @@ class TextFetcher:
         if progress is True:
             print("Extractings texts...", end="", flush=True)
 
-        with Pool(cls.workers) as pool:
-            for processed_docs in pool.imap_unordered(
+        if cls.workers == 1:
+            for processed_docs in map(
                 cls.__local_process, ((text, do_nlp, keep_all, post_func) for text in texts)
             ):
                 doc_count += 1
                 for doc in processed_docs:
                     yield doc, doc_count
+        else:
+            with Pool(cls.workers) as pool:
+                for processed_docs in pool.imap_unordered(
+                    cls.__local_process, ((text, do_nlp, keep_all, post_func) for text in texts)
+                ):
+                    doc_count += 1
+                    for doc in processed_docs:
+                        yield doc, doc_count
 
     @classmethod
     def __local_process(cls, args) -> Iterable[PreparedDoc | Tokens]:
         text, do_nlp, keep_all, post_func = args
         if cls.is_philo_db is True:
             text_objects, sent_starts_list, metadata = cls.process_philo_text(text)
-        elif cls.is_string is True:
-            text_objects, sent_starts_list, metadata = cls.process_string(text)
         else:
             text_objects, sent_starts_list, metadata = cls.process_text(text)
         docs = cls.__prepare_docs(text_objects, sent_starts_list, metadata)
@@ -404,14 +337,16 @@ class TextFetcher:
             doc: str = input_text.read()
         tokens, sent_starts = cls.tokenize_text(doc)
         metadata: dict[str, Any] = {"filename": text}
-        return [tokens], [sent_starts], [metadata]
+        return tokens, sent_starts, metadata
 
     @classmethod
-    def process_string(cls, text: str):
+    def process_string(cls, text: str) -> Doc:
         """Process one string. Return the transformed document"""
         tokens, sent_starts = cls.tokenize_text(text)
-        metadata: dict[str, Any] = {"filename": text}
-        return [tokens], [sent_starts], [metadata]
+        doc = Doc(cls.model.vocab, [word for word, _ in tokens], sent_starts=sent_starts)  # type: ignore
+        for pos, (_, ext) in enumerate(tokens):
+            doc[pos]._.ext = ext
+        return doc
 
     @classmethod
     def tokenize_text(cls, doc: str) -> tuple[list[tuple[str, dict[str, str]]], list[bool]]:

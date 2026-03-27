@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text-preprocessing"
+version = "1.1.2"
+authors = [
+    { name = "The ARTFL Project", email = "clovisgladstone@gmail.com" },
+]
+requires-python = ">=3.11"
+dependencies = [
+    "unidecode",
+    "PyStemmer",
+    "spacy>=3.8",
+    "orjson",
+    "lz4",
+    "regex",
+    "torch",
+    "multiprocess",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["text_preprocessing*"]

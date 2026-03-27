@@ -191,7 +191,7 @@ class Tokens:
                     "start_byte": self[i].ext["start_byte"],
                     "end_byte": self[max_index].ext["end_byte"],
                 }
-                yield Tokens(self[i:max_index], metadata)
+                yield Tokens(self[i:self.length], metadata)
             else:
                 metadata = {
                     **self.metadata,
@@ -295,7 +295,7 @@ def post_process_component(
     name: str,
     language: str,
     stemmer: bool,
-    lemmatizer: str,
+    lemmatizer: str | bool,
     stopwords: str | bool,
     strip_punctuation: bool,
     strip_numbers: bool,

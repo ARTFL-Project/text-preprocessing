@@ -337,7 +337,7 @@ class TextFetcher:
             doc: str = input_text.read()
         tokens, sent_starts = cls.tokenize_text(doc)
         metadata: dict[str, Any] = {"filename": text}
-        return tokens, sent_starts, metadata
+        return [tokens], [sent_starts], [metadata]
 
     @classmethod
     def process_string(cls, text: str) -> Doc:
@@ -359,10 +359,11 @@ class TextFetcher:
         for match in cls.token_regex.finditer(doc):
             sent_starts.append(new_sent)
             new_sent = match[0] in cls.sentence_boundaries
+            ext = {"token": match[0], "start_byte": match.start(), "end_byte": match.end()}
             if cls.modernize is not False:
-                tokens.append((cls.modernize(match[0]), {"token": match[0]}))  # type: ignore
+                tokens.append((cls.modernize(match[0]), ext))  # type: ignore
             else:
-                tokens.append((match[0], {"token": match[0]}))
+                tokens.append((match[0], ext))
         return tokens, sent_starts
 
     @classmethod

@@ -381,6 +381,19 @@ class TestProcessTexts:
         assert "world_X" in texts
         assert "foo_X" in texts
 
+    def test_post_processing_function_applied_in_process_string(self):
+        def append_marker(tokens):
+            for tok in tokens:
+                if tok.text and tok.text != " ":
+                    tok.text = tok.text + "_X"
+            return tokens
+
+        p = PreProcessor(language="english", post_processing_function=append_marker, workers=1)
+        texts = words(p.process_string("hello world foo"))
+        assert "hello_X" in texts
+        assert "world_X" in texts
+        assert "foo_X" in texts
+
     # --- workers=1 explicit ---
 
     def test_single_worker_produces_same_output(self):

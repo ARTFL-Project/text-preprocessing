@@ -251,6 +251,17 @@ class TestSpacyLemmatizer:
         assert "cat" in texts
         assert "dog" in texts
 
+    def test_en_lemmatizer_works_without_pos_to_keep(self):
+        # Tagger must be kept even when pos_to_keep is unset, because the
+        # English rule-based lemmatizer depends on POS annotations.
+        p = PreProcessor(language="english", language_model=EN_MODEL,
+                         lemmatizer="spacy", workers=1)
+        toks = tokens_with_pos(p.process_string("dogs are running in cities"))
+        texts = [t.text for t in toks]
+        assert "dog" in texts       # dogs → dog
+        assert "run" in texts       # running → run
+        assert "city" in texts      # cities → city
+
 
 # ===========================================================================
 # Integration: language model + corpus files

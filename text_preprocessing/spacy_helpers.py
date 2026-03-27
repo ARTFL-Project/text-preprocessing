@@ -130,11 +130,12 @@ class Tokens:
             yield token
 
     def __next__(self):
+        if self.iter_index >= self.length:
+            self.iter_index = 0
+            raise StopIteration
+        token = self.tokens[self.iter_index]
         self.iter_index += 1
-        if self.iter_index < self.length:
-            return self.tokens[self.iter_index]
-        else:
-            raise IndexError
+        return token
 
     def __getitem__(self, index: Union[int, slice]) -> Union[PreprocessorToken, Iterable[PreprocessorToken]]:
         if isinstance(index, int):
@@ -484,7 +485,7 @@ def load_language_model(language_model, normalize_options: dict[str, Any]) -> tu
         )
     ):
         disabled_pipelines = ["tokenizer", "textcat"]
-        if not normalize_options["pos_to_keep"]:
+        if not normalize_options["pos_to_keep"] and normalize_options["lemmatizer"] != "spacy":
             disabled_pipelines.append("tagger")
         if not normalize_options["ents_to_keep"]:
             disabled_pipelines.append("ner")

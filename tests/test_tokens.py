@@ -109,6 +109,28 @@ class TestTokensAccess:
         tokens = make_tokens(["hello", "world", "foo"])
         assert [t.text for t in tokens] == ["hello", "world", "foo"]
 
+    def test_next_yields_all_tokens(self):
+        tokens = make_tokens(["a", "b", "c"])
+        result = []
+        try:
+            while True:
+                result.append(next(tokens))
+        except StopIteration:
+            pass
+        assert [t.text for t in result] == ["a", "b", "c"]
+
+    def test_next_raises_stop_iteration(self):
+        tokens = make_tokens(["a"])
+        next(tokens)
+        with pytest.raises(StopIteration):
+            next(tokens)
+
+    def test_next_resets_after_exhaustion(self):
+        tokens = make_tokens(["a", "b"])
+        list(tokens)  # exhaust via __iter__
+        # __next__ should work again from the start
+        assert next(tokens).text == "a"
+
     def test_getitem_int(self):
         tokens = make_tokens(["hello", "world"])
         assert tokens[0].text == "hello"

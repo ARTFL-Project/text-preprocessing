@@ -50,7 +50,13 @@ class PreparedDoc:
 
 
 class PreProcessor:
-    """Text Preprocessing class"""
+    """Text preprocessing pipeline.
+
+    Only one instance should be active at a time: configuration is stored on
+    TextFetcher as class variables so forked workers inherit it via
+    copy-on-write, avoiding costly pickling of the Spacy model and language
+    dictionaries.
+    """
 
     def __init__(
         self,
@@ -192,7 +198,10 @@ class PreProcessor:
         """Take a string and return a list of preprocessed tokens"""
         doc = self.text_fetcher.process_string(text)
         processed_doc = self.nlp(doc)
-        return Tokens(processed_doc, keep_all=keep_all)
+        tokens = Tokens(processed_doc, keep_all=keep_all)
+        if self.post_func is not None:
+            tokens = self.post_func(tokens)
+        return tokens
 
     def __split_spacy_docs(self, doc: Doc) -> list[Doc]:
         """Split spacy doc into smaller docs of 10 sentences"""
@@ -202,23 +211,27 @@ class PreProcessor:
             if len(sentence_group) == 10:
                 docs.append(Doc.from_docs(sentence_group))
                 sentence_group = []
-            else:
-                sent_starts = []
-                words = []
-                for token in sent:
-                    sent_starts.append(token.is_sent_start)
-                    words.append(token.text)
-                sent_doc = Doc(self.nlp.vocab, words, sent_starts=sent_starts)
-                for pos, token in enumerate(sent):
-                    sent_doc[pos]._.ext = token._.ext
-                sentence_group.append(sent_doc)
+            sent_starts = []
+            words = []
+            for token in sent:
+                sent_starts.append(token.is_sent_start)
+                words.append(token.text)
+            sent_doc = Doc(self.nlp.vocab, words, sent_starts=sent_starts)
+            for pos, token in enumerate(sent):
+                sent_doc[pos]._.ext = token._.ext
+            sentence_group.append(sent_doc)
         if sentence_group:
             docs.append(Doc.from_docs(sentence_group))
         return docs
 
 
 class TextFetcher:
-    """Text fetcher"""
+    """Tokeniser and file reader for PreProcessor.
+
+    Configuration is kept as class variables so that forked worker processes
+    inherit the Spacy model and language dictionaries via copy-on-write without
+    pickling them.  Workers treat this state as read-only.
+    """
 
     word_regex: str = r"[\p{L}\p{M}\p{N}]+|'"
     sentence_boundaries: list[str] = [".", "!", "?"]
